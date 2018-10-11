@@ -179,6 +179,16 @@ class LoopFinder(c_ast.NodeVisitor):
 	def visit_For(self, node):
 		self.loops.append(node)
 
+class AggregateAnonymizer(c_ast.NodeVisitor):
+	"""
+	Visits all aggregates and removes their names.
+	"""
+	def visit_Struct(self, node):
+		node.name = None
+
+	def visit_Union(self, node):
+		node.name = None
+
 ########################################################################################################################
 # Analyzer                                                                                                             #
 ########################################################################################################################
@@ -201,9 +211,9 @@ class CAnalyzer:
 		collector = DeclarationCollector()
 		collector.visit(self.ast)
 		for declaration, scope in collector.declarations:
-			self.resolve_typedefs(declaration.type, typedefs)
 			if scope == function or scope == function.body or scope == self.ast:
 				declarations.append(declaration)
+				self.resolve_typedefs(declaration.type, typedefs)
 		return declarations
 
 	def is_variable_of_declaration_modified(self, declaration: c_ast.Decl, block: c_ast.Compound):
@@ -322,6 +332,7 @@ class CAnalyzer:
 				elif type(declaration.type) == c_ast.IdentifierType:
 					if typedef.name in declaration.type.names:
 						declaration.type = copy.deepcopy(typedef.type.type)
+				AggregateAnonymizer().visit(declaration.type)
 			if type(declaration.type) == c_ast.Struct or type(declaration.type) == c_ast.Union:
 				for member in declaration.type.decls:
 					self.resolve_typedefs(member.type, typedefs)
