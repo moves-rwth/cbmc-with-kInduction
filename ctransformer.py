@@ -12,7 +12,7 @@ import copy
 import sys
 import random
 import string
-from pycparser import c_ast
+from pycparser import c_ast, c_generator
 
 VERIFIER_NONDET_FUNCTION_NAME = "__VERIFIER_nondet_"
 
@@ -240,8 +240,10 @@ class CTransformer:
 		:return: An expression that represents the negation.
 		:rtype: c_ast.ExprList
 		"""
-		# TODO
-		return None
+		expressions = []
+		for expr in expression.exprs:
+			expressions.append(c_ast.UnaryOp("!", expr))
+		return c_ast.ExprList(expressions)
 
 	def create_function_call(self, name: str, parameters: c_ast.ExprList = c_ast.ExprList([])):
 		"""
