@@ -1,7 +1,8 @@
-import sys
+import subprocess
 import argparse
 import shutil
 import tempfile
+import re
 from pycparser import parse_file
 from canalyzer import *
 from ctransformer import *
@@ -13,7 +14,6 @@ VERIFIER_TRUE_REGEX           = "VERIFICATION FAILED"
 VERIFIER_FALSE_REGEX          = "VERIFICATION SUCCESSFUL"
 VERIFIER_ASSUME_FUNCTION_NAME = "__VERIFIER_assume"
 MAIN_FUNCTION_NAME            = "main"
-HAVOC_FUNCTION_NAME           = "havoc_variables_modified_in_main_loop"
 
 def prepare_base_step(input_file: str):
 	"""
@@ -87,28 +87,28 @@ def interprete_verifier_output(output: str):
 	else:
 		return None
 
-def run_kinduction(file_base_step: str, file_induction_step: str):
+def run_kinduction(file_base: str, file_induction: str):
 	"""
 	Runs the k-Induction algorithm on the given files. Starts two processes, one for the base step, one for the
 	induction step. Returns the answer to the verification task as soon as one of the processes stop. Note that this
 	function call may run indefinitely.
-	:param file_base_step: The location of the file to run the base step on.
-	:param file_induction_step: The location of the file to run the inductive step on.
+	:param file_base: The location of the file to run the base step on.
+	:param file_induction: The location of the file to run the inductive step on.
 	:return: Either True, False or None (in case no definite answer could be given).
 	"""
 	# Starts both processes.
-	base_step_process      = subprocess.Popen([VERIFIER_BASE_CALL, file_base_step], stdout=subprocess.PIPE)
-	induction_step_process = subprocess.Popen([VERIFIER_INDUCTION_CALL, file_induction_step], stdout=subprocess.PIPE)
+	base_process      = subprocess.Popen([VERIFIER_BASE_CALL, file_base], shell=True, stdout=subprocess.PIPE)
+	induction_process = subprocess.Popen([VERIFIER_INDUCTION_CALL, file_induction], shell=True, stdout=subprocess.PIPE)
 	# Busy waiting until one of the processes finishes.
-	while base_step_process.poll() == None and induction_step_process.poll() == None: pass
+	while base_process.poll() == None and induction_process.poll() == None: pass
 	# Killing the remaining process, if necessary.
-	if base_step_process.poll()      == None: base_step_process.kill()
-	if induction_step_process.poll() == None: induction_step_process.kill()
+	if base_process.poll()      == None: base_process.kill()
+	if induction_process.poll() == None: induction_process.kill()
 	# Fetches the outputs of the processes and passes it on to the output interpreter.
-	base_step_output      = base_step_process.communicate()[0]
-	induction_step_output = induction_step_process.communicate()[0]
-	base_step_result      = interprete_verifier_output(base_step_output)
-	induction_step_result = interprete_verifier_output(induction_step_output)
+	base_step_output      = base_process.communicate()[0]
+	induction_step_output = induction_process.communicate()[0]
+	base_step_result      = interprete_verifier_output(base_step_output.decode("utf-8"))
+	induction_step_result = interprete_verifier_output(induction_step_output.decode("utf-8"))
 	if base_step_result == False and induction_step_result != True:
 		return False
 	elif base_step_result != False and induction_step_result == True:
