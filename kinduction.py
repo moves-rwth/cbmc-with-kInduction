@@ -8,10 +8,10 @@ from canalyzer import *
 from ctransformer import *
 
 # TODO move to config
-VERIFIER_BASE_CALL            = "cbmc-incremental.sh"
-VERIFIER_INDUCTION_CALL       = "cbmc-incremental.sh --stop-when-unsat"
-VERIFIER_TRUE_REGEX           = "VERIFICATION FAILED"
-VERIFIER_FALSE_REGEX          = "VERIFICATION SUCCESSFUL"
+VERIFIER_BASE_CALL            = "cbmc-ps --incremental --no-unwinding-assertions"
+VERIFIER_INDUCTION_CALL       = "cbmc-ps --incremental --stop-when-unsat --no-unwinding-assertions"
+VERIFIER_FALSE_REGEX          = "VERIFICATION FAILED"
+VERIFIER_TRUE_REGEX           = "VERIFICATION SUCCESSFUL"
 VERIFIER_ASSUME_FUNCTION_NAME = "__VERIFIER_assume"
 MAIN_FUNCTION_NAME            = "main"
 
@@ -23,7 +23,7 @@ def prepare_base_step(input_file: str):
 	:return: The location of the prepared C file for the base step.
 	:rtype: str
 	"""
-	output_file = tempfile.NamedTemporaryFile()
+	output_file = tempfile.NamedTemporaryFile(delete=False, suffix=".c")
 	shutil.copy(input_file, output_file.name)
 	return output_file.name
 
@@ -40,7 +40,7 @@ def prepare_induction_step(input_file: str):
 	analyzer    = CAnalyzer(ast)
 	transformer = CTransformer(ast)
 	# Transforms code to be a little bit more uniform and easier to work with.
-	transformer.deanonymize_aggregates()
+	# transformer.deanonymize_aggregates()
 	# Identifies main components of the code.
 	try:
 		main_function = analyzer.identify_function(MAIN_FUNCTION_NAME)
@@ -65,24 +65,32 @@ def prepare_induction_step(input_file: str):
 	transformer.insert(assume_property, before=main_loop.stmt.block_items[0])
 	transformer.insert(havoc_block, before=main_loop)
 	# Writes the transformed code to a temporary file.
-	output_file = tempfile.NamedTemporaryFile()
+	output_file = tempfile.NamedTemporaryFile(delete=False, suffix=".c")
 	print("k-Induction main function after transformation:")
 	print(c_generator.CGenerator().visit(main_function))
 	output_file.write(bytes(c_generator.CGenerator().visit(ast), "utf-8"))
 	return output_file.name
 
-def interprete_verifier_output(output: str):
+def interprete_base_step_output(output: str):
 	"""
-	Interprets the given verifier output to one of the three possible outcomes of a verification task:
-	True, False, and Unknown.
+	Interprets the given verifier output to one of the two possible outcomes of a base step verification task:
+	False and Unknown.
 	:param output: The output of the verifier.
-	:return: True, False or None.
+	:return: False or None.
 	"""
-	false_re = re.compile(VERIFIER_FALSE_REGEX)
-	true_re  = re.compile(VERIFIER_TRUE_REGEX)
-	if false_re.match(output):
+	if re.compile(VERIFIER_FALSE_REGEX).search(output) is not None:
 		return False
-	elif true_re.match(output):
+	else:
+		return None
+
+def interprete_induction_step_output(output: str):
+	"""
+	Interprets the given verifier output to one of the two possible outcomes of a induction step verification task:
+	True and Unknown.
+	:param output: The output of the verifier.
+	:return: True or None.
+	"""
+	if re.compile(VERIFIER_TRUE_REGEX).search(output) is not None:
 		return True
 	else:
 		return None
@@ -97,8 +105,8 @@ def run_kinduction(file_base: str, file_induction: str):
 	:return: Either True, False or None (in case no definite answer could be given).
 	"""
 	# Starts both processes.
-	base_process      = subprocess.Popen([VERIFIER_BASE_CALL, file_base], shell=True, stdout=subprocess.PIPE)
-	induction_process = subprocess.Popen([VERIFIER_INDUCTION_CALL, file_induction], shell=True, stdout=subprocess.PIPE)
+	base_process      = subprocess.Popen([VERIFIER_BASE_CALL + " " + file_base], shell=True, stdout=subprocess.PIPE)
+	induction_process = subprocess.Popen([VERIFIER_INDUCTION_CALL + " " + file_induction], shell=True, stdout=subprocess.PIPE)
 	# Busy waiting until one of the processes finishes.
 	while base_process.poll() == None and induction_process.poll() == None: pass
 	# Killing the remaining process, if necessary.
@@ -107,11 +115,11 @@ def run_kinduction(file_base: str, file_induction: str):
 	# Fetches the outputs of the processes and passes it on to the output interpreter.
 	base_step_output      = base_process.communicate()[0]
 	induction_step_output = induction_process.communicate()[0]
-	base_step_result      = interprete_verifier_output(base_step_output.decode("utf-8"))
-	induction_step_result = interprete_verifier_output(induction_step_output.decode("utf-8"))
-	if base_step_result == False and induction_step_result != True:
+	base_step_result      = interprete_base_step_output(base_step_output.decode("utf-8"))
+	induction_step_result = interprete_induction_step_output(induction_step_output.decode("utf-8"))
+	if base_step_result == False:
 		return False
-	elif base_step_result != False and induction_step_result == True:
+	elif induction_step_result == True:
 		return True
 	else:
 		return None
