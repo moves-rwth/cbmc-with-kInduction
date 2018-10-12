@@ -1,3 +1,6 @@
+import fcntl
+import os
+import signal
 import subprocess
 import argparse
 import shutil
@@ -8,8 +11,8 @@ from canalyzer import *
 from ctransformer import *
 
 # TODO move to config
-VERIFIER_BASE_CALL            = "cbmc-ps --incremental --no-unwinding-assertions"
-VERIFIER_INDUCTION_CALL       = "cbmc-ps --incremental --stop-when-unsat --no-unwinding-assertions"
+VERIFIER_BASE_CALL            = "cbmc-ps.sh --incremental-check main.X --no-unwinding-assertions"
+VERIFIER_INDUCTION_CALL       = "cbmc-ps.sh --incremental-check main.X --stop-when-unsat --no-unwinding-assertions"
 VERIFIER_FALSE_REGEX          = "VERIFICATION FAILED"
 VERIFIER_TRUE_REGEX           = "VERIFICATION SUCCESSFUL"
 VERIFIER_ASSUME_FUNCTION_NAME = "__VERIFIER_assume"
@@ -105,16 +108,26 @@ def run_kinduction(file_base: str, file_induction: str):
 	:return: Either True, False or None (in case no definite answer could be given).
 	"""
 	# Starts both processes.
-	base_process      = subprocess.Popen([VERIFIER_BASE_CALL + " " + file_base], shell=True, stdout=subprocess.PIPE)
-	induction_process = subprocess.Popen([VERIFIER_INDUCTION_CALL + " " + file_induction], shell=True, stdout=subprocess.PIPE)
+	fd = sys.stdin.fileno()
+	fl = fcntl.fcntl(fd, fcntl.F_GETFL)
+	fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
+	base_process      = subprocess.Popen(VERIFIER_BASE_CALL + " " + file_base, shell=True, stdout=subprocess.PIPE, preexec_fn=os.setsid)
+	induction_process = subprocess.Popen(VERIFIER_INDUCTION_CALL + " " + file_induction, shell=True, stdout=subprocess.PIPE, preexec_fn=os.setsid)
 	# Busy waiting until one of the processes finishes.
-	while base_process.poll() == None and induction_process.poll() == None: pass
+	base_step_output      = bytes()
+	induction_step_output = bytes()
+	while True:
+		base_step_output += base_process.stdout.readline()
+		induction_step_output += induction_process.stdout.readline()
+		if base_process.poll() is not None or induction_process.poll() is not None: break
 	# Killing the remaining process, if necessary.
-	if base_process.poll()      == None: base_process.kill()
-	if induction_process.poll() == None: induction_process.kill()
+	if base_process.poll()      is None: os.killpg(os.getpgid(base_process.pid), signal.SIGTERM)
+	if induction_process.poll() is None: os.killpg(os.getpgid(induction_process.pid), signal.SIGTERM)
+	for line in base_process.stdout:
+		base_step_output += line
+	for line in induction_process.stdout:
+		induction_step_output += line
 	# Fetches the outputs of the processes and passes it on to the output interpreter.
-	base_step_output      = base_process.communicate()[0]
-	induction_step_output = induction_process.communicate()[0]
 	base_step_result      = interprete_base_step_output(base_step_output.decode("utf-8"))
 	induction_step_result = interprete_induction_step_output(induction_step_output.decode("utf-8"))
 	if base_step_result == False:
