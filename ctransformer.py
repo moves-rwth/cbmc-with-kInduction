@@ -12,7 +12,9 @@ import copy
 import sys
 import random
 import string
-from pycparser import c_ast, c_generator
+from pycparser import c_ast
+from pycparserext.ext_c_generator import GnuCGenerator
+from pycparserext.ext_c_parser import FuncDeclExt, TypeDeclExt
 
 VERIFIER_NONDET_FUNCTION_NAME = "__VERIFIER_nondet_"
 
@@ -34,6 +36,11 @@ class CompoundInserter(c_ast.NodeVisitor):
 	def __init__(self, new_node: c_ast.Node, before_node: c_ast.Node):
 		self.new_node = new_node
 		self.before_node = before_node
+
+	def generic_visit(self, node):
+		if type(node) != FuncDeclExt and type(node) != TypeDeclExt:
+			for c in node:
+				self.visit(c)
 
 	def visit_Compound(self, node):
 		for i, (c_name, c) in enumerate(node.children()):
@@ -189,6 +196,8 @@ class CTransformer:
 						)
 				)
 		# Bundles the havoc assignments into one compound statement.
+		if len(body_items) == 0:
+			sys.stderr.write("WARNING: Could not havoc variable of declaration " + GnuCGenerator().visit(declaration))
 		return c_ast.Compound(body_items)
 
 	def get_svcomp_type(self, type_names: list):

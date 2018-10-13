@@ -1,20 +1,23 @@
 import fcntl
 import os
-import signal
 import subprocess
 import argparse
 import shutil
 import tempfile
 import re
-from pycparser import parse_file
+import time
+
+from pycparserext.ext_c_parser import GnuCParser
+from pycparserext.ext_c_generator import GnuCGenerator
 from canalyzer import *
 from ctransformer import *
 
 # TODO move to config
-VERIFIER_BASE_CALL            = "cbmc-ps.sh --incremental-check main.X --no-unwinding-assertions"
-VERIFIER_INDUCTION_CALL       = "cbmc-ps.sh --incremental-check main.X --stop-when-unsat --no-unwinding-assertions"
+VERIFIER_BASE_CALL            = ["cbmc-ps.sh", "--incremental-check main.X", "--no-unwinding-assertions"]
+VERIFIER_INDUCTION_CALL       = ["cbmc-ps.sh", "--incremental-check main.X", "--stop-when-unsat", "--no-unwinding-assertions"]
 VERIFIER_FALSE_REGEX          = "VERIFICATION FAILED"
 VERIFIER_TRUE_REGEX           = "VERIFICATION SUCCESSFUL"
+VERIFIER_K_REGEX              = "VERIFICATION FAILED|VERIFICATION SUCCESSFUL"
 VERIFIER_ASSUME_FUNCTION_NAME = "__VERIFIER_assume"
 MAIN_FUNCTION_NAME            = "main"
 
@@ -39,7 +42,8 @@ def prepare_induction_step(input_file: str):
 	:return: The location of the prepared C file for the induction step.
 	:rtype: str
 	"""
-	ast         = parse_file(input_file)
+	with open(input_file) as file:
+		ast = GnuCParser().parse(file.read())
 	analyzer    = CAnalyzer(ast)
 	transformer = CTransformer(ast)
 	# Transforms code to be a little bit more uniform and easier to work with.
@@ -66,12 +70,10 @@ def prepare_induction_step(input_file: str):
 		sys.exit(1)
 	# Inserts new code pieces.
 	transformer.insert(assume_property, before=main_loop.stmt.block_items[0])
-	transformer.insert(havoc_block, before=main_loop)
+	transformer.insert(havoc_block, before=main_loop.stmt.block_items[0])
 	# Writes the transformed code to a temporary file.
 	output_file = tempfile.NamedTemporaryFile(delete=False, suffix=".c")
-	print("k-Induction main function after transformation:")
-	print(c_generator.CGenerator().visit(main_function))
-	output_file.write(bytes(c_generator.CGenerator().visit(ast), "utf-8"))
+	output_file.write(bytes(GnuCGenerator().visit(ast), "utf-8"))
 	return output_file.name
 
 def interprete_base_step_output(output: str):
@@ -98,6 +100,16 @@ def interprete_induction_step_output(output: str):
 	else:
 		return None
 
+def identify_k(output: str):
+	"""
+	Identifies the current iteration number given the verifier output.
+	:param output: A (partial) output of a verifier.
+	:return: The iteration number.
+	:rtype: int
+	"""
+	# Returns the number of occurences of the verifier "k" regex plus one (as we start with k=1).
+	return len(re.compile(VERIFIER_K_REGEX).findall(output)) + 1
+
 def run_kinduction(file_base: str, file_induction: str):
 	"""
 	Runs the k-Induction algorithm on the given files. Starts two processes, one for the base step, one for the
@@ -108,31 +120,46 @@ def run_kinduction(file_base: str, file_induction: str):
 	:return: Either True, False or None (in case no definite answer could be given).
 	"""
 	# Starts both processes.
-	fd = sys.stdin.fileno()
-	fl = fcntl.fcntl(fd, fcntl.F_GETFL)
-	fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
-	base_process      = subprocess.Popen(VERIFIER_BASE_CALL + " " + file_base, shell=True, stdout=subprocess.PIPE, preexec_fn=os.setsid)
-	induction_process = subprocess.Popen(VERIFIER_INDUCTION_CALL + " " + file_induction, shell=True, stdout=subprocess.PIPE, preexec_fn=os.setsid)
-	# Busy waiting until one of the processes finishes.
+	base_process      = subprocess.Popen(VERIFIER_BASE_CALL + [file_base], stdout=subprocess.PIPE,)
+	induction_process = subprocess.Popen(VERIFIER_INDUCTION_CALL + [file_induction], stdout=subprocess.PIPE)
+	fl = fcntl.fcntl(base_process.stdout, fcntl.F_GETFL)
+	fcntl.fcntl(base_process.stdout, fcntl.F_SETFL, fl | os.O_NONBLOCK)
+	fl = fcntl.fcntl(induction_process.stdout, fcntl.F_GETFL)
+	fcntl.fcntl(induction_process.stdout, fcntl.F_SETFL, fl | os.O_NONBLOCK)
+	# Busy waiting until one of the processes finishes. Already fetching intermediate output here for some processing.
 	base_step_output      = bytes()
 	induction_step_output = bytes()
+	base_step_k           = 0
+	induction_step_k      = 0
 	while True:
-		base_step_output += base_process.stdout.readline()
+		# Identifies new output, if any.
+		base_step_output      += base_process.stdout.readline()
 		induction_step_output += induction_process.stdout.readline()
-		if base_process.poll() is not None or induction_process.poll() is not None: break
+		# Checks if one of the processes has reached a new k, and prints it.
+		old_base_step_k      = base_step_k
+		old_induction_step_k = induction_step_k
+		base_step_k          = identify_k(base_step_output.decode("utf-8"))
+		induction_step_k     = identify_k(induction_step_output.decode("utf-8"))
+		if old_base_step_k != base_step_k:
+			print("Base step k = " + str(base_step_k))
+		if old_induction_step_k != induction_step_k:
+			print("Induction step k = " + str(induction_step_k))
+		# Quits if the base process has found a counterexample.
+		if base_process.poll() is not None: break
+		# If the induction step has found a proof, we need to check if the base case has reached the same k.
+		if induction_process.poll() is not None and base_step_k >= induction_step_k: break
 	# Killing the remaining process, if necessary.
-	if base_process.poll()      is None: os.killpg(os.getpgid(base_process.pid), signal.SIGTERM)
-	if induction_process.poll() is None: os.killpg(os.getpgid(induction_process.pid), signal.SIGTERM)
-	for line in base_process.stdout:
-		base_step_output += line
-	for line in induction_process.stdout:
-		induction_step_output += line
+	if base_process.poll()      is None: base_process.kill()
+	if induction_process.poll() is None: induction_process.kill()
+	# Reads the rest of the process output that may be accumulated after the last readline() call.
+	for line in base_process.stdout: base_step_output += line
+	for line in induction_process.stdout: induction_step_output += line
 	# Fetches the outputs of the processes and passes it on to the output interpreter.
 	base_step_result      = interprete_base_step_output(base_step_output.decode("utf-8"))
 	induction_step_result = interprete_induction_step_output(induction_step_output.decode("utf-8"))
-	if base_step_result == False:
+	if base_step_result == False and induction_step_result == None:
 		return False
-	elif induction_step_result == True:
+	elif induction_step_result == True and base_step_result == None:
 		return True
 	else:
 		return None
