@@ -18,7 +18,9 @@ Currently supported analyses:
 """
 
 import copy
-from pycparser import c_ast, c_generator
+from pycparser import c_ast
+from pycparserext.ext_c_parser import FuncDeclExt, TypeDeclExt
+from pycparserext.ext_c_generator import GnuCGenerator
 
 VERIFIER_ERROR_FUNCTION_NAME = "__VERIFIER_error"
 ASSERT_FUNCTION_NAME         = "assert"
@@ -39,7 +41,7 @@ class MultipleMainLoopsException(Exception):
 		message = "Input program contains multiple (" + str(len(self.loops)) + ") main loops in function " \
 				  + self.main_function_name + ", namely:\n"
 		for i, loop in enumerate(self.loops):
-			message += str(i) + ")\n" + c_generator.CGenerator().visit(loop) + "\n"
+			message += str(i) + ")\n" + GnuCGenerator().visit(loop) + "\n"
 		return message
 
 class NoMainLoopException(Exception):
@@ -128,6 +130,11 @@ class TypedefCollector(c_ast.NodeVisitor):
 	def __init__(self):
 		self.typedefs = []
 
+	def generic_visit(self, node):
+		if type(node) != FuncDeclExt and type(node) != TypeDeclExt:
+			for c in node:
+				self.visit(c)
+
 	def visit_Typedef(self, node):
 		self.typedefs.append(node)
 
@@ -148,20 +155,21 @@ class DeclarationCollector(c_ast.NodeVisitor):
 
 	def visit_Decl(self, node):
 		# Searches for the scope of the variable - It is either block, function parameter, or global or an aggregate.
-		scope = None
-		for parent in reversed(self.parents):
-			if type(parent) == c_ast.FileAST\
-					or type(parent) == c_ast.Compound\
-					or type(parent) == c_ast.FuncDef\
-					or type(parent) == c_ast.Struct\
-					or type(parent) == c_ast.Union:
-				scope = parent
-				break
-		if scope is None:
-			scope = node
-		if type(node.type) != c_ast.FuncDecl:
-			self.declarations.add((node, scope))
-		# TODO maybe call visit again to get function params?
+		if type(node.type) != c_ast.FuncDecl and type(node.type) != FuncDeclExt:
+			scope = None
+			for parent in reversed(self.parents):
+				if type(parent) == c_ast.FileAST\
+						or type(parent) == c_ast.Compound\
+						or type(parent) == c_ast.FuncDef\
+						or type(parent) == c_ast.Struct\
+						or type(parent) == c_ast.Union:
+					scope = parent
+					break
+			if scope is None:
+				scope = node
+			if type(node.type) != c_ast.FuncDecl:
+				self.declarations.add((node, scope))
+			# TODO maybe call visit again to get function params?
 
 class LoopFinder(c_ast.NodeVisitor):
 	"""
