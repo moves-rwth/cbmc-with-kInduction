@@ -13,8 +13,12 @@ from canalyzer import *
 from ctransformer import *
 
 # TODO move to config
-VERIFIER_BASE_CALL            = ["cbmc-ps.sh", "--incremental-check main.X", "--no-unwinding-assertions"]
-VERIFIER_INDUCTION_CALL       = ["cbmc-ps.sh", "--incremental-check main.X", "--stop-when-unsat", "--no-unwinding-assertions"]
+VERIFIER_IS_INCREMENTAL       = False
+#VERIFIER_BASE_CALL            = ["cbmc-ps.sh", "--incremental-check main.X", "--no-unwinding-assertions"]
+#VERIFIER_INDUCTION_CALL       = ["cbmc-ps.sh", "--incremental-check main.X", "--stop-when-unsat", "--no-unwinding-assertions"]
+VERIFIER_BASE_CALL            = ["cbmc.sh", "--unwindset main.X:KINCREMENT", "--no-unwinding-assertions"]
+VERIFIER_INDUCTION_CALL       = ["cbmc.sh", "--unwindset main.X:KINCREMENT", "--no-unwinding-assertions"]
+VERIFIER_KINCREMENT_STRING    = "KINCREMENT"
 VERIFIER_FALSE_REGEX          = "VERIFICATION FAILED"
 VERIFIER_TRUE_REGEX           = "VERIFICATION SUCCESSFUL"
 VERIFIER_K_REGEX              = "VERIFICATION FAILED|VERIFICATION SUCCESSFUL"
@@ -62,15 +66,27 @@ def prepare_induction_step(input_file: str):
 		sys.exit(1)
 	# Creates new code and functions to be added.
 	try:
-		havoc_block      = transformer.create_havoc_block(declarations)
-		negated_property = transformer.create_negated_expression(property)
-		assume_property  = transformer.create_function_call(VERIFIER_ASSUME_FUNCTION_NAME, negated_property)
+		havoc_block = transformer.create_havoc_block(declarations)
 	except NonSvCompTypeException as err:
 		print(err)
 		sys.exit(1)
+	negated_property = transformer.add_to_expression(property, "!")
+	assume_property  = transformer.create_function_call(VERIFIER_ASSUME_FUNCTION_NAME, negated_property)
+	# Adds some code to emulate incremental BMC: Only check property if we are in the k-th main loop iteration.
+	if not VERIFIER_IS_INCREMENTAL:
+		k_initialization = transformer.from_code("const unsigned int k = 1;").block_items[0]
+		i_initialization = transformer.from_code("unsigned int i = 0;").block_items[0]
+		i_increment      = transformer.from_code("i++;").block_items[0]
+		k_property       = transformer.add_to_expression(property,
+														 "&&",
+														 c_ast.ExprList(transformer.from_code("(i == k)").block_items))
+		transformer.replace_property(k_property)
+		transformer.insert(k_initialization, before=main_loop)
+		transformer.insert(i_initialization, before=main_loop)
+		transformer.insert(i_increment, before=main_loop.stmt.block_items[0])
 	# Inserts new code pieces.
+	transformer.insert(havoc_block, before=main_loop)#.stmt.block_items[0]) # TODO is this correct?
 	transformer.insert(assume_property, before=main_loop.stmt.block_items[0])
-	transformer.insert(havoc_block, before=main_loop.stmt.block_items[0])
 	# Writes the transformed code to a temporary file.
 	output_file = tempfile.NamedTemporaryFile(delete=False, suffix=".c")
 	output_file.write(bytes(GnuCGenerator().visit(ast), "utf-8"))
@@ -110,27 +126,29 @@ def identify_k(output: str):
 	# Returns the number of occurences of the verifier "k" regex plus one (as we start with k=1).
 	return len(re.compile(VERIFIER_K_REGEX).findall(output)) + 1
 
-def run_kinduction(file_base: str, file_induction: str):
+def run_kinduction_incremental_bmc(file_base: str, file_induction: str):
 	"""
 	Runs the k-Induction algorithm on the given files. Starts two processes, one for the base step, one for the
 	induction step. Returns the answer to the verification task as soon as one of the processes stop. Note that this
-	function call may run indefinitely.
+	function call may run indefinitely. This function shall only be used if the underlying verifier supports an
+	incremental BMC setting.
 	:param file_base: The location of the file to run the base step on.
 	:param file_induction: The location of the file to run the inductive step on.
 	:return: Either True, False or None (in case no definite answer could be given).
 	"""
 	# Starts both processes.
-	base_process      = subprocess.Popen(VERIFIER_BASE_CALL + [file_base], stdout=subprocess.PIPE,)
+	base_process      = subprocess.Popen(VERIFIER_BASE_CALL + [file_base], stdout=subprocess.PIPE)
 	induction_process = subprocess.Popen(VERIFIER_INDUCTION_CALL + [file_induction], stdout=subprocess.PIPE)
+	# Sets stdout to non-blocking IO, so we are able to fetch intermediate data without blocking if no data was read.
 	fl = fcntl.fcntl(base_process.stdout, fcntl.F_GETFL)
 	fcntl.fcntl(base_process.stdout, fcntl.F_SETFL, fl | os.O_NONBLOCK)
 	fl = fcntl.fcntl(induction_process.stdout, fcntl.F_GETFL)
 	fcntl.fcntl(induction_process.stdout, fcntl.F_SETFL, fl | os.O_NONBLOCK)
-	# Busy waiting until one of the processes finishes. Already fetching intermediate output here for some processing.
 	base_step_output      = bytes()
 	induction_step_output = bytes()
 	base_step_k           = 0
 	induction_step_k      = 0
+	# Busy waiting until one of the processes finishes. Already fetching intermediate output here for some processing.
 	while True:
 		# Identifies new output, if any.
 		base_step_output      += base_process.stdout.readline()
@@ -164,6 +182,75 @@ def run_kinduction(file_base: str, file_induction: str):
 	else:
 		return None
 
+def insert_k_into_callstring(callstring: list, k: int):
+	"""
+	Replaces the position of the unwind number with the given k in the callstring.
+	:param callstring: The callstring in which to replace the generic k.
+	:param k: The specific k to write.
+	:return: The new callstring.
+	:rtype: list of str
+	"""
+	return [c.replace(VERIFIER_KINCREMENT_STRING, str(k)) for c in callstring]
+
+def insert_k_into_induction_file(file_induction: str, k: int):
+	"""
+	Inserts the current unwind number into the file such that the property is only checked once the iteration number
+	has reached k.
+	:param file_induction: The file the verifier run on in the previous iteration.
+	:param k: The new k.
+	:return: A filename whose content is the C-code for the updated iteration number k.
+	"""
+	if k > 1:
+		with open(file_induction) as file:
+			ast = GnuCParser().parse(file.read())
+		main_function = CAnalyzer(ast).identify_function(MAIN_FUNCTION_NAME)
+		CTransformer(ast).replace_initial_value("const unsigned int k = " + str(k - 1) + ";", main_function, k)
+		output_file = tempfile.NamedTemporaryFile(delete=False, suffix=".c")
+		output_file.write(bytes(GnuCGenerator().visit(ast), "utf-8"))
+		return output_file.name
+	else:
+		return file_induction
+
+def run_kinduction_bmc(file_base: str, file_induction: str):
+	"""
+	Runs the k-Induction algorithm on the given files. Starts two processes, one for the base step, one for the
+	induction step. Returns the answer to the verification task as soon as one of the processes stop. Note that this
+	function call may run indefinitely. This function shall be used if there is no incremental BMC option for the
+	underlying verifier, hence incremental BMC will be simulated.
+	:param file_base: The location of the file to run the base step on.
+	:param file_induction: The location of the file to run the inductive step on.
+	:return: Either True, False or None (in case no definite answer could be given).
+	"""
+	base_step_k       = 0
+	induction_step_k  = 0
+	base_process      = None
+	induction_process = None
+	while True:
+		if base_process is None or base_process.poll() is not None:
+			base_step_output = bytes()
+			if base_process is not None:
+				for line in base_process.stdout: base_step_output += line
+			if interprete_base_step_output(base_step_output.decode("utf-8")) == False:
+				return False
+			else:
+				base_step_k += 1
+				print("Base step k = " + str(base_step_k))
+				base_call    = insert_k_into_callstring(VERIFIER_BASE_CALL, base_step_k)
+				base_process = subprocess.Popen(base_call + [file_base], stdout=subprocess.PIPE)
+		if induction_process is None or induction_process.poll() is not None:
+			induction_step_output = bytes()
+			if induction_process is not None:
+				for line in induction_process.stdout: induction_step_output += line
+			if interprete_induction_step_output(induction_step_output.decode("utf-8")) == True:
+				return True
+			else:
+				induction_step_k += 1
+				print("Induction step k = " + str(induction_step_k))
+				file_induction    = insert_k_into_induction_file(file_induction, induction_step_k)
+				induction_call    = insert_k_into_callstring(VERIFIER_BASE_CALL, induction_step_k)
+				induction_process = subprocess.Popen(induction_call + [file_induction], stdout=subprocess.PIPE)
+		time.sleep(1)
+
 def verify(input_file):
 	"""
 	The main entry point for the k-Induction algorithm. Handles everything that concerns the k-Induction approach, from
@@ -174,8 +261,11 @@ def verify(input_file):
 	print("Preparing input files for k-Induction...")
 	file_base_step      = prepare_base_step(input_file)
 	file_induction_step = prepare_induction_step(input_file)
-	print("Running k-Induction processes...")
-	result = run_kinduction(file_base_step, file_induction_step)
+	print("Starting k-Induction processes...")
+	if VERIFIER_IS_INCREMENTAL:
+		result = run_kinduction_incremental_bmc(file_base_step, file_induction_step)
+	else:
+		result = run_kinduction_bmc(file_base_step, file_induction_step)
 	if result == True:
 		print("VERIFICATION SUCCESSFUL")
 	elif result == False:
