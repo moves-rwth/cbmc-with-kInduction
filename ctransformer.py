@@ -13,10 +13,17 @@ import sys
 import random
 import string
 from pycparser import c_ast
+from pycparserext.ext_c_parser import GnuCParser
 from pycparserext.ext_c_generator import GnuCGenerator
 from pycparserext.ext_c_parser import FuncDeclExt, TypeDeclExt
 
 VERIFIER_NONDET_FUNCTION_NAME = "__VERIFIER_nondet_"
+VERIFIER_ERROR_FUNCTION_NAME  = "__VERIFIER_error"
+ASSERT_FUNCTION_NAME          = "assert"
+
+########################################################################################################################
+# Exceptions                                                                                                           #
+########################################################################################################################
 
 class NonSvCompTypeException(Exception):
 	"""
@@ -28,6 +35,10 @@ class NonSvCompTypeException(Exception):
 	def __str__(self):
 		message = "Can not assign variable " + str(self.variable) + " a non-deterministic value."
 		return message
+
+########################################################################################################################
+# AST Node Visitors                                                                                                    #
+########################################################################################################################
 
 class CompoundInserter(c_ast.NodeVisitor):
 	"""
@@ -77,6 +88,48 @@ class IdentifierCollector(c_ast.NodeVisitor):
 	def visit_TypeDecl(self, node):
 		if (type(node.type) == c_ast.Struct or type(node.type) == c_ast.Union) and node.type.name is not None:
 			self.identifiers.add(node.type.name)
+
+class PropertyReplacer(c_ast.NodeVisitor):
+	"""
+	Finds the verification property in the AST node and replaces it with the given one.
+	Searches for all compound blocks that contains a function call with the verifier error function and assert
+	statements. It then assembles the property via the surrounding if statement or the arguments of the assert.
+	Stores the properties as an ExprList whose elements should be understood as a conjunct.
+	"""
+	def __init__(self, new_property: c_ast.ExprList):
+		self.new_property = new_property
+		self.parents = []
+
+	def generic_visit(self, node):
+		self.parents.append(node)
+		for c_name, c in node.children():
+			self.visit(c)
+		self.parents = self.parents[:-1]
+
+	def visit_FuncCall(self, node):
+		# Case __VERIFIER_error was used.
+		if node.name.name == VERIFIER_ERROR_FUNCTION_NAME:
+			if type(self.parents[-1]) == c_ast.Compound and type(self.parents[-2]) == c_ast.If:
+				self.parents[-2].cond = self.new_property
+		# Case assert was used.
+		elif node.name.name == ASSERT_FUNCTION_NAME:
+				node.args = self.new_property
+
+class DeclarationReplacer(c_ast.NodeVisitor):
+	"""
+	Replaces the initializer of the given declaration with the new constant integer value.
+	"""
+	def __init__(self, declaration: c_ast.Decl, new_value: int):
+		self.declaration = declaration
+		self.new_value = new_value
+
+	def visit_Decl(self, node):
+		if node.name == self.declaration.name:
+			node.init = c_ast.Constant("int", str(self.new_value))
+
+########################################################################################################################
+# Transformer                                                                                                          #
+########################################################################################################################
 
 class CTransformer:
 	def __init__(self, ast: c_ast.FileAST):
@@ -242,17 +295,41 @@ class CTransformer:
 			raise NonSvCompTypeException(" ".join(type_names))
 		return svcomp_type
 
-	def create_negated_expression(self, expression: c_ast.ExprList):
+	def add_to_expression(self, expression: c_ast.ExprList, operator: str, addition: c_ast.ExprList=None):
 		"""
-		Creates a negated expression from the given expression.
-		:param expression: The expression to negate.
-		:return: An expression that represents the negation.
+		Adds the additional expression to the given expression, concatenated with the given operator. If the additional
+		expression is None, the operator is assumed to be unary.
+		:param operator: An operator on expression, e.g. "&&" or "!".
+		:param addition: The expression to add.
+		:param expression: The expression to add to.
+		:return: The merged expression.
 		:rtype: c_ast.ExprList
 		"""
 		expressions = []
 		for expr in expression.exprs:
-			expressions.append(c_ast.UnaryOp("!", expr))
+			if addition is None:
+				expressions.append(c_ast.UnaryOp(operator, copy.deepcopy(expr)))
+			else:
+				expressions.append(c_ast.BinaryOp(operator, copy.deepcopy(expr), addition))
 		return c_ast.ExprList(expressions)
+
+	def replace_property(self, expression: c_ast.ExprList):
+		"""
+		Replaces the property in the main loop with the given expression.
+		:param expression: The new expression.
+		"""
+		PropertyReplacer(expression).visit(self.ast)
+
+	def replace_initial_value(self, declaration: str, scope: c_ast.Node, new_value: int):
+		"""
+		Replaces the initial value of the given declaration with the new value.
+		:param declaration: The declaration in which the initial value is to be replaced, as a string.
+		:param scope: Where to look for the declaration.
+		:param new_value: The new intial value.
+		"""
+		declaration_node = self.from_code(declaration)
+		if len(declaration_node.block_items) > 0:
+			DeclarationReplacer(declaration_node.block_items[0], new_value).visit(scope)
 
 	def create_function_call(self, name: str, parameters: c_ast.ExprList = c_ast.ExprList([])):
 		"""
@@ -275,3 +352,28 @@ class CTransformer:
 		:param before: The node before which to insert.
 		"""
 		CompoundInserter(node, before).visit(self.ast)
+
+	def from_code(self, code: str):
+		"""
+		Takes (partial) C code as a string and returns the AST node that belongs to it. Wraps everything in a block.
+		:param code: The C code.
+		:return: The corresponding AST compound.
+		:rtype: c_ast.Compound
+		"""
+		# TODO this is a bit hacky, trying to wrap the code s.t. it is hopefully valid to allow for partial parsing.
+		# TODO plus, this is slow.
+		try:
+			ast = GnuCParser().parse(code)
+			return c_ast.Compound(ast.ext)
+		except:
+			try:
+				wrapped_code = "void f() { " + code + " }"
+				ast = GnuCParser().parse(wrapped_code)
+				return ast.ext[0].body
+			except:
+				try:
+					wrapped_code = "void f() { if(" + code + ") {} }"
+					ast = GnuCParser().parse(wrapped_code)
+					return c_ast.Compound([ast.ext[0].body.block_items[0].cond])
+				except Exception as e:
+					print(e)
