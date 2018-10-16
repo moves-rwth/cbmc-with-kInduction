@@ -353,27 +353,28 @@ class CTransformer:
 		"""
 		CompoundInserter(node, before).visit(self.ast)
 
-	def from_code(self, code: str):
+	def from_code(self, code: str, parser=None):
 		"""
 		Takes (partial) C code as a string and returns the AST node that belongs to it. Wraps everything in a block.
 		:param code: The C code.
 		:return: The corresponding AST compound.
-		:rtype: c_ast.Compound
+		:rtype: c_ast.Compound or None
 		"""
 		# TODO this is a bit hacky, trying to wrap the code s.t. it is hopefully valid to allow for partial parsing.
-		# TODO plus, this is slow.
+		if not parser: parser = GnuCParser()
 		try:
-			ast = GnuCParser().parse(code)
+			ast = parser.parse(code)
 			return c_ast.Compound(ast.ext)
 		except:
 			try:
 				wrapped_code = "void f() { " + code + " }"
-				ast = GnuCParser().parse(wrapped_code)
+				ast = parser.parse(wrapped_code)
 				return ast.ext[0].body
 			except:
 				try:
 					wrapped_code = "void f() { if(" + code + ") {} }"
-					ast = GnuCParser().parse(wrapped_code)
+					ast = parser.parse(wrapped_code)
 					return c_ast.Compound([ast.ext[0].body.block_items[0].cond])
 				except Exception as e:
 					print(e)
+					return None

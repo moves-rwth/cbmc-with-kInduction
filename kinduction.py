@@ -48,8 +48,9 @@ def prepare_induction_step(input_file: str):
 	:return: The location of the prepared C file for the induction step.
 	:rtype: str
 	"""
+	parser = GnuCParser()
 	with open(input_file) as file:
-		ast = GnuCParser().parse(file.read())
+		ast = parser.parse(file.read())
 	analyzer    = CAnalyzer(ast)
 	transformer = CTransformer(ast)
 	# Transforms code to be a little bit more uniform and easier to work with.
@@ -76,9 +77,9 @@ def prepare_induction_step(input_file: str):
 	assume_property  = transformer.create_function_call(VERIFIER_ASSUME_FUNCTION_NAME, negated_property)
 	# Adds some code to emulate incremental BMC: Only check property if we are in the k-th main loop iteration.
 	if not VERIFIER_IS_INCREMENTAL:
-		k_initialization = transformer.from_code("const unsigned int k = 1;").block_items[0]
-		i_initialization = transformer.from_code("unsigned int i = 0;").block_items[0]
-		i_increment      = transformer.from_code("i++;").block_items[0]
+		k_initialization = transformer.from_code("const unsigned int k = 1;", parser).block_items[0]
+		i_initialization = transformer.from_code("unsigned int i = 0;", parser).block_items[0]
+		i_increment      = transformer.from_code("i++;", parser).block_items[0]
 		k_property       = transformer.add_to_expression(property,
 														 "&&",
 														 c_ast.ExprList(transformer.from_code("(i == k)").block_items))
@@ -87,7 +88,7 @@ def prepare_induction_step(input_file: str):
 		transformer.insert(i_initialization, before=main_loop)
 		transformer.insert(i_increment, before=main_loop.stmt.block_items[0])
 	# Inserts new code pieces.
-	transformer.insert(havoc_block, before=main_loop)#.stmt.block_items[0]) # TODO is this correct?
+	transformer.insert(havoc_block, before=main_loop)
 	transformer.insert(assume_property, before=main_loop.stmt.block_items[0])
 	# Writes the transformed code to a temporary file.
 	output_file = tempfile.NamedTemporaryFile(delete=False, suffix=".c")
@@ -230,6 +231,7 @@ def insert_k_into_induction_file(file_induction: str, k: int):
 	:return: A filename whose content is the C-code for the updated iteration number k.
 	"""
 	if k > 1:
+		# Parses the file (again) and identifies the main function (again). Not super elegant, could surely be improved.
 		with open(file_induction) as file:
 			ast = GnuCParser().parse(file.read())
 		main_function = CAnalyzer(ast).identify_function(MAIN_FUNCTION_NAME)
