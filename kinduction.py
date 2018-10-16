@@ -15,17 +15,18 @@ from canalyzer import *
 from ctransformer import *
 
 # TODO move to config
-VERIFIER_IS_INCREMENTAL       = False
-#VERIFIER_BASE_CALL            = ["cbmc-ps.sh", "--incremental-check main.X", "--no-unwinding-assertions"]
-#VERIFIER_INDUCTION_CALL       = ["cbmc-ps.sh", "--incremental-check main.X", "--stop-when-unsat", "--no-unwinding-assertions"]
-VERIFIER_BASE_CALL            = ["cbmc.sh", "--unwindset", "main.X:KINCREMENT", "--no-unwinding-assertions"]
-VERIFIER_INDUCTION_CALL       = ["cbmc.sh", "--unwindset", "main.X:KINCREMENT", "--no-unwinding-assertions"]
+VERIFIER_IS_INCREMENTAL       = True
+VERIFIER_BASE_CALL            = ["cbmc-ps.sh", "--incremental-check main.X", "--no-unwinding-assertions"]
+VERIFIER_INDUCTION_CALL       = ["cbmc-ps.sh", "--incremental-check main.X", "--stop-when-unsat", "--no-unwinding-assertions"]
+#VERIFIER_BASE_CALL            = ["cbmc.sh", "--unwindset", "main.X:KINCREMENT", "--no-unwinding-assertions"]
+#VERIFIER_INDUCTION_CALL       = ["cbmc.sh", "--unwindset", "main.X:KINCREMENT", "--no-unwinding-assertions"]
 VERIFIER_KINCREMENT_STRING    = "KINCREMENT"
 VERIFIER_FALSE_REGEX          = "VERIFICATION FAILED"
 VERIFIER_TRUE_REGEX           = "VERIFICATION SUCCESSFUL"
 VERIFIER_K_REGEX              = "VERIFICATION FAILED|VERIFICATION SUCCESSFUL"
 VERIFIER_ASSUME_FUNCTION_NAME = "__VERIFIER_assume"
 MAIN_FUNCTION_NAME            = "main"
+POLL_INTERVAL                 = 2
 
 def prepare_base_step(input_file: str):
 	"""
@@ -189,16 +190,16 @@ def run_kinduction_incremental_bmc(file_base: str, file_induction: str, timelimi
 		old_induction_step_k = induction_step_k
 		base_step_k          = identify_k(base_step_output)
 		induction_step_k     = identify_k(induction_step_output)
-		if old_base_step_k != base_step_k:
-			print("Base step k = " + str(base_step_k))
-		if old_induction_step_k != induction_step_k:
-			print("Induction step k = " + str(induction_step_k))
 		# Quits if the base process has found a counterexample.
 		if base_process.poll() is not None: break
 		# If the induction step has found a proof, we need to check if the base case has reached the same k.
 		if induction_process.poll() is not None and base_step_k >= induction_step_k: break
+		if old_base_step_k != base_step_k:
+			print("Base step k = " + str(base_step_k))
+		if old_induction_step_k != induction_step_k:
+			print("Induction step k = " + str(induction_step_k))
 		# Don't overload the CPU with busy waiting.
-		time.sleep(1)
+		time.sleep(POLL_INTERVAL)
 	# Killing the remaining process, if necessary.
 	if base_process.poll()      is None: base_process.kill()
 	if induction_process.poll() is None: induction_process.kill()
@@ -282,7 +283,8 @@ def run_kinduction_bmc(file_base: str, file_induction: str, timelimit: int=None)
 					induction_out = induction_out_file.read().decode("utf-8")
 				else:
 					induction_out = ""
-				if induction_out_file and interprete_induction_step_output(induction_out) == True:
+				if base_step_k >= induction_step_k and induction_out_file and \
+						interprete_induction_step_output(induction_out) == True:
 					return True
 				else:
 					induction_step_k += 1
@@ -293,7 +295,7 @@ def run_kinduction_bmc(file_base: str, file_induction: str, timelimit: int=None)
 					induction_process  = subprocess.Popen(induction_call + [file_induction], stdout=induction_out_file)
 		# Checks for a possible timeout.
 		if is_timeout(timelimit): return None
-		time.sleep(1)
+		time.sleep(POLL_INTERVAL)
 
 def verify(input_file: str, timelimit: int=None):
 	"""
