@@ -15,11 +15,11 @@ from canalyzer import *
 from ctransformer import *
 
 # TODO move to config
-VERIFIER_IS_INCREMENTAL       = True
-VERIFIER_BASE_CALL            = ["cbmc-ps.sh", "--incremental-check main.X", "--no-unwinding-assertions"]
-VERIFIER_INDUCTION_CALL       = ["cbmc-ps.sh", "--incremental-check main.X", "--stop-when-unsat", "--no-unwinding-assertions"]
-#VERIFIER_BASE_CALL            = ["cbmc.sh", "--unwindset", "main.X:KINCREMENT", "--no-unwinding-assertions"]
-#VERIFIER_INDUCTION_CALL       = ["cbmc.sh", "--unwindset", "main.X:KINCREMENT", "--no-unwinding-assertions"]
+VERIFIER_IS_INCREMENTAL       = False
+#VERIFIER_BASE_CALL            = ["cbmc-ps.sh", "--incremental-check main.X", "--no-unwinding-assertions"]
+#VERIFIER_INDUCTION_CALL       = ["cbmc-ps.sh", "--incremental-check main.X", "--stop-when-unsat", "--no-unwinding-assertions"]
+VERIFIER_BASE_CALL            = ["cbmc.sh", "--unwindset", "main.X:KINCREMENT", "--no-unwinding-assertions"]
+VERIFIER_INDUCTION_CALL       = ["cbmc.sh", "--unwindset", "main.X:KINCREMENT", "--no-unwinding-assertions"]
 VERIFIER_KINCREMENT_STRING    = "KINCREMENT"
 VERIFIER_FALSE_REGEX          = "VERIFICATION FAILED"
 VERIFIER_TRUE_REGEX           = "VERIFICATION SUCCESSFUL"
@@ -323,12 +323,12 @@ def verify(input_file: str, timelimit: int=None):
 	return result
 
 def __main__():
-	DESCRIPTION = "Runs k-Induction on a given C-file by utilizing an incremental bounded model checker. " \
+	DESCRIPTION = "Runs k-Induction on a given C-file by utilizing an (incremental) bounded model checker. " \
 				  "Currently, some constraints are imposed on the C code: It has to contain the entry function named " \
 				  "\"main\", inside which the loop over whom the k-Induction shall be run is located. The " \
-				  "verification task shall be given by a __VERIFIER_error() call and has to be guarded by one or " \
-				  "more if statements that contain the verification condition. " \
-				  "The external verifier can be configured via the config file verifier.config."
+				  "verification task shall be given by a __VERIFIER_error() call and has to be guarded by one if " \
+				  "statement that contains the verification condition. The external verifier can be configured via " \
+				  "the config file verifier.config."
 	parser = argparse.ArgumentParser(description=DESCRIPTION)
 	parser.add_argument("input", type=str)
 	parser.add_argument("-t", "--timelimit", type=int, dest="timelimit", help="The maximum CPU-time [s] for the verification.")
