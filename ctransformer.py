@@ -381,6 +381,7 @@ class CTransformer:
 		"""
 		Takes (partial) C code as a string and returns the AST node that belongs to it. Wraps everything in a block.
 		:param code: The C code.
+		:param parser: If you have already created a parser, you can hint it here. No need to create multiple parsers.
 		:return: The corresponding AST compound.
 		:rtype: c_ast.Compound or None
 		"""
