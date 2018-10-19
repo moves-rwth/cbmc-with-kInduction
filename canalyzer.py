@@ -92,9 +92,9 @@ class AmbiguousVariableTypeException(Exception):
 
 class PropertyFinder(c_ast.NodeVisitor):
 	"""
-	Finds the verification property in the AST node and puts it into its property member.
+	Finds the verification property in the AST node and puts it into its properties member.
 	Searches for all compound blocks that contains a function call with the verifier error function and assert
-	statements. It then assembles the property via the surrounding if statement or the arguments of the assert.
+	statements. It then assembles the property via the surrounding if statements or the arguments of the assert.
 	Stores the properties as an ExprList whose elements should be understood as a conjunct.
 	"""
 	def __init__(self):
@@ -110,17 +110,45 @@ class PropertyFinder(c_ast.NodeVisitor):
 	def visit_FuncCall(self, node):
 		# Case __VERIFIER_error was used.
 		if node.name.name == VERIFIER_ERROR_FUNCTION_NAME:
-			if type(self.parents[-1]) == c_ast.Compound and type(self.parents[-2]) == c_ast.If:
-				if type(self.parents[-2].cond) == c_ast.ExprList:
-					self.properties.exprs += self.parents[-2].cond.exprs
+			i = -1
+			while -i <= len(self.parents) and type(self.parents[i]) == c_ast.Compound and \
+					type(self.parents[i - 1]) == c_ast.If:
+				if type(self.parents[i - 1].cond) == c_ast.ExprList:
+					self.properties.exprs += self.parents[i - 1].cond.exprs
 				else:
-					self.properties.exprs.append(self.parents[-2].cond)
+					self.properties.exprs.append(self.parents[i - 1].cond)
+				i -= 2
 		# Case assert was used.
 		elif node.name.name == ASSERT_FUNCTION_NAME:
 			if type(node.args) == c_ast.ExprList:
 				self.properties.exprs += node.args.exprs
 			else:
 				self.properties.exprs.append(node.args)
+class PropertyStatementFinder(c_ast.NodeVisitor):
+	"""
+	Finds the statement surrounding the verification property in the AST node and puts it into its property member.
+	"""
+	def __init__(self):
+		self.statement = None
+		self.parents = []
+
+	def generic_visit(self, node):
+		self.parents.append(node)
+		for c_name, c in node.children():
+			self.visit(c)
+		self.parents = self.parents[:-1]
+
+	def visit_FuncCall(self, node):
+		# Case __VERIFIER_error was used.
+		if node.name.name == VERIFIER_ERROR_FUNCTION_NAME:
+			i = -1
+			while -i <= len(self.parents) and type(self.parents[i]) == c_ast.Compound and \
+					type(self.parents[i - 1]) == c_ast.If:
+				self.statement = self.parents[i - 1]
+				i -= 2
+		# Case assert was used.
+		elif node.name.name == ASSERT_FUNCTION_NAME:
+			self.statement = node
 
 class TypedefCollector(c_ast.NodeVisitor):
 	"""
@@ -300,7 +328,7 @@ class CAnalyzer:
 
 	def identify_property(self):
 		"""
-		Identifies the verification property in the given compound block, if there is one. If there is none, returns an
+		Identifies the verification property in the given compound block, if there is one. If there none, returns an
 		empty expression list.
 		:parameter block: The compound block to identify the property in.
 		:return: The verification property as an expression list, interpretable as a conjunction if there is more than
@@ -310,6 +338,17 @@ class CAnalyzer:
 		property_finder = PropertyFinder()
 		property_finder.visit(self.identify_main_loop())
 		return property_finder.properties
+
+	def identify_property_statement(self):
+		"""
+		Identifies the statement that contains the verification property, i.e. either an if statement or an assert
+		function call.
+		:return: The statement responsible for the property check.
+		:rtype: c_ast.Node
+		"""
+		property_statement_finder = PropertyStatementFinder()
+		property_statement_finder.visit(self.identify_main_loop())
+		return property_statement_finder.statement
 
 	def identify_typedefs(self):
 		"""
