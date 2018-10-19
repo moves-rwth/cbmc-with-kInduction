@@ -44,9 +44,10 @@ class CompoundInserter(c_ast.NodeVisitor):
 	"""
 	Inserts the given node into the AST in a compound block once it encounters its new neighbouring node.
 	"""
-	def __init__(self, new_node: c_ast.Node, before_node: c_ast.Node):
-		self.new_node = new_node
+	def __init__(self, new_node: c_ast.Node, before_node: c_ast.Node, after_node: c_ast.Node):
+		self.new_node    = new_node
 		self.before_node = before_node
+		self.after_node  = after_node
 
 	def generic_visit(self, node):
 		if type(node) != FuncDeclExt and type(node) != TypeDeclExt:
@@ -55,8 +56,10 @@ class CompoundInserter(c_ast.NodeVisitor):
 
 	def visit_Compound(self, node):
 		for i, (c_name, c) in enumerate(node.children()):
-			if c == self.before_node:
+			if self.before_node and c == self.before_node:
 				node.block_items.insert(i, self.new_node)
+			elif self.after_node and c == self.after_node:
+				node.block_items.insert(i + 1, self.new_node)
 			self.visit(c)
 
 class AggregateDeanonymizer(c_ast.NodeVisitor):
@@ -295,23 +298,44 @@ class CTransformer:
 			raise NonSvCompTypeException(" ".join(type_names))
 		return svcomp_type
 
-	def add_to_expression(self, expression: c_ast.ExprList, operator: str, addition: c_ast.ExprList=None):
+	def add_to_expression(self, expression: c_ast.Node, operator: str, addition: c_ast.ExprList=None):
 		"""
 		Adds the additional expression to the given expression, concatenated with the given operator. If the additional
 		expression is None, the operator is assumed to be unary.
+		:param expression: The expression to add to.
 		:param operator: An operator on expression, e.g. "&&" or "!".
 		:param addition: The expression to add.
-		:param expression: The expression to add to.
 		:return: The merged expression.
 		:rtype: c_ast.ExprList
 		"""
 		expressions = []
-		for expr in expression.exprs:
+		if type(expression) is c_ast.ExprList:
+			for expr in expression.exprs:
+				if addition is None:
+					expressions.append(c_ast.UnaryOp(operator, copy.deepcopy(expr)))
+				else:
+					expressions.append(c_ast.BinaryOp(operator, copy.deepcopy(expr), addition))
+		else:
 			if addition is None:
-				expressions.append(c_ast.UnaryOp(operator, copy.deepcopy(expr)))
+				expressions.append(c_ast.UnaryOp(operator, copy.deepcopy(expression)))
 			else:
-				expressions.append(c_ast.BinaryOp(operator, copy.deepcopy(expr), addition))
+				expressions.append(c_ast.BinaryOp(operator, copy.deepcopy(expression), addition))
 		return c_ast.ExprList(expressions)
+
+	def join_expression_list(self, operator: str, expressions: c_ast.ExprList):
+		"""
+		Joins every element in the list with given the binary operator, e.g. ["a", "b"] and "&&" -> "a && b".
+		:param operator: A binary operator string for C.
+		:param expressions: The expression list.
+		:return: A joined expression where each element is copied.
+		:rtype: c_ast.Node
+		"""
+		if len(expressions.exprs) > 0:
+			joined = copy.deepcopy(expressions.exprs[0])
+			for property in expressions.exprs[1:]:
+				joined = c_ast.BinaryOp(operator, joined, copy.deepcopy(property))
+			return joined
+		return copy.deepcopy(expressions)
 
 	def replace_property(self, expression: c_ast.ExprList):
 		"""
@@ -331,7 +355,7 @@ class CTransformer:
 		if len(declaration_node.block_items) > 0:
 			DeclarationReplacer(declaration_node.block_items[0], new_value).visit(scope)
 
-	def create_function_call(self, name: str, parameters: c_ast.ExprList = c_ast.ExprList([])):
+	def create_function_call(self, name: str, parameters: c_ast.Node = c_ast.ExprList([])):
 		"""
 		Creates a function call containing the given parameters. Does not change the AST.
 		:param name: The name of the function.
@@ -341,17 +365,17 @@ class CTransformer:
 		"""
 		return c_ast.FuncCall(c_ast.ID(name), parameters)
 
-	def insert(self, node: c_ast.Node, before: c_ast.Node):
+	def insert(self, node: c_ast.Node, before: c_ast.Node=None, after: c_ast.Node=None):
 		"""
-		Inserts the given block at the given position into the the AST. The position determined by the before parameter,
-		which leads to an insertion right before the node in the compound statement. If the node is not present, the
-		insertion takes place after the last element. Note that the node has to be contained in a compound statement
-		(i.e. block) where insertion is possible. Otherwise, the AST remains unchanged.
-		Operates in-place on the AST.
+		Inserts the given block at the given position into the the AST. The position determined by the before/after
+		parameter, which leads to an insertion right before the node in the compound statement. Note that the node has
+		to be contained in a compound statement (i.e. block) where insertion is possible. Otherwise, the AST remains
+		unchanged. Operates in-place on the AST.
 		:param node: The node to insert.
-		:param before: The node before which to insert.
+		:param before: The node before which to insert. If None, checks the after node for position.
+		:param before: The node after which to insert. If None, checks the before node for position.
 		"""
-		CompoundInserter(node, before).visit(self.ast)
+		CompoundInserter(node, before, after).visit(self.ast)
 
 	def from_code(self, code: str, parser=None):
 		"""

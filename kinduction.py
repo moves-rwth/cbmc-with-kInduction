@@ -58,10 +58,10 @@ def prepare_induction_step(input_file: str):
 	# transformer.deanonymize_aggregates()
 	# Identifies main components of the code.
 	try:
-		main_function = analyzer.identify_function(MAIN_FUNCTION_NAME)
-		main_loop     = analyzer.identify_main_loop()
-		declarations  = analyzer.identify_declarations_of_modified_variables(main_loop.stmt, main_function)
-		property      = analyzer.identify_property()
+		main_function      = analyzer.identify_function(MAIN_FUNCTION_NAME)
+		main_loop          = analyzer.identify_main_loop()
+		declarations       = analyzer.identify_declarations_of_modified_variables(main_loop.stmt, main_function)
+		property           = analyzer.identify_property()
 	except (NoMainFunctionException,
 			NoMainLoopException,
 			MultipleMainLoopsException,
@@ -74,14 +74,15 @@ def prepare_induction_step(input_file: str):
 	except NonSvCompTypeException as err:
 		print(err)
 		sys.exit(1)
-	negated_property = transformer.add_to_expression(property, "!")
-	assume_property  = transformer.create_function_call(VERIFIER_ASSUME_FUNCTION_NAME, negated_property)
+	conjunct_property = transformer.join_expression_list("&&", property)
+	negated_property  = transformer.add_to_expression(conjunct_property, "!")
+	assume_property   = transformer.create_function_call(VERIFIER_ASSUME_FUNCTION_NAME, negated_property)
 	# Adds some code to emulate incremental BMC: Only check property if we are in the k-th main loop iteration.
 	if not VERIFIER_IS_INCREMENTAL:
 		k_initialization = transformer.from_code("const unsigned int k = 1;", parser).block_items[0]
 		i_initialization = transformer.from_code("unsigned int i = 0;", parser).block_items[0]
 		i_increment      = transformer.from_code("i++;", parser).block_items[0]
-		k_property       = transformer.add_to_expression(property,
+		k_property       = transformer.add_to_expression(property.exprs[0],
 														 "&&",
 														 c_ast.ExprList(transformer.from_code("(i == k)").block_items))
 		transformer.replace_property(k_property)
