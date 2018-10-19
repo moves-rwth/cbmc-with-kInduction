@@ -24,6 +24,8 @@ VERIFIER_KINCREMENT_STRING    = "KINCREMENT"
 VERIFIER_FALSE_REGEX          = "VERIFICATION FAILED"
 VERIFIER_TRUE_REGEX           = "VERIFICATION SUCCESSFUL"
 VERIFIER_K_REGEX              = "VERIFICATION FAILED|VERIFICATION SUCCESSFUL"
+VERIFIER_SMT_TIME_REGEX_START = "Runtime decision procedure: "
+VERIFIER_SMT_TIME_REGEX_END   = "s"
 VERIFIER_ASSUME_FUNCTION_NAME = "__VERIFIER_assume"
 MAIN_FUNCTION_NAME            = "main"
 POLL_INTERVAL                 = 2
@@ -128,8 +130,28 @@ def identify_k(output: str):
 	:return: The iteration number.
 	:rtype: int
 	"""
-	# Returns the number of occurences of the verifier "k" regex plus one (as we start with k=1).
+	# Returns the number of occurrences of the verifier "k" regex plus one (as we start with k=1).
 	return len(re.compile(VERIFIER_K_REGEX).findall(output)) + 1
+
+def identify_smt_time(output: str, only_last:bool=False):
+	"""
+	Identifies the time that was spent on SMT-solving.
+	:param output: A (partial) output of a verifier.
+	:param only_last: If set, only the last SMT-time is returned if the string contains multiple times.
+	:return: The SMT time.
+	:rtype: float
+	"""
+	time = 0
+	matches = re.findall(VERIFIER_SMT_TIME_REGEX_START + "(.*?)" + VERIFIER_SMT_TIME_REGEX_END, output)
+	if len(matches) > 0 and only_last:
+		matches = [matches[-1]]
+	for match in matches:
+		try:
+			time += float(str(match))
+		except Exception as e:
+			print("Can not identify the SMT-time " + str(match) + " as a float value!")
+			print(e)
+	return time
 
 def is_timeout(timelimit: int):
 	"""
@@ -150,7 +172,7 @@ def is_timeout(timelimit: int):
 	else:
 		return False
 
-def run_kinduction_incremental_bmc(file_base: str, file_induction: str, timelimit: int=None):
+def run_kinduction_incremental_bmc(file_base: str, file_induction: str, timelimit: int=None, print_smt_time:bool=False):
 	"""
 	Runs the k-Induction algorithm on the given files. Starts two processes, one for the base step, one for the
 	induction step. Returns the answer to the verification task as soon as one of the processes stop. Note that this
@@ -159,6 +181,7 @@ def run_kinduction_incremental_bmc(file_base: str, file_induction: str, timelimi
 	:param file_base: The location of the file to run the base step on.
 	:param file_induction: The location of the file to run the inductive step on.
 	:param timelimit: An optional limit on the CPU-time, in seconds.
+	:param print_smt_time: Whether to print out the time that was spent on SMT-solving.
 	:return: Either True, False or None (in case no definite answer could be given).
 	"""
 	# Starts both processes.
@@ -196,8 +219,12 @@ def run_kinduction_incremental_bmc(file_base: str, file_induction: str, timelimi
 		# If the induction step has found a proof, we need to check if the base case has reached the same k.
 		if induction_process.poll() is not None and base_step_k >= induction_step_k: break
 		if old_base_step_k != base_step_k:
+			if base_step_k > 1 and print_smt_time:
+				print("Runtime SMT-solver: " + "{0:0.2f}".format(identify_smt_time(base_step_output, True)) + "s")
 			print("Base step k = " + str(base_step_k))
 		if old_induction_step_k != induction_step_k:
+			if induction_step_k > 1 and print_smt_time:
+				print("Runtime SMT-solver: " + "{0:0.2f}".format(identify_smt_time(induction_step_output, True)) + "s")
 			print("Induction step k = " + str(induction_step_k))
 		# Don't overload the CPU with busy waiting.
 		time.sleep(POLL_INTERVAL)
@@ -244,7 +271,7 @@ def insert_k_into_induction_file(file_induction: str, k: int):
 	else:
 		return file_induction
 
-def run_kinduction_bmc(file_base: str, file_induction: str, timelimit: int=None):
+def run_kinduction_bmc(file_base: str, file_induction: str, timelimit: int=None, print_smt_time:bool=False):
 	"""
 	Runs the k-Induction algorithm on the given files. Starts two processes, one for the base step, one for the
 	induction step. Returns the answer to the verification task as soon as one of the processes stop. Note that this
@@ -253,6 +280,7 @@ def run_kinduction_bmc(file_base: str, file_induction: str, timelimit: int=None)
 	:param file_base: The location of the file to run the base step on.
 	:param file_induction: The location of the file to run the inductive step on.
 	:param timelimit: An optional limit on the CPU-time, in seconds.
+	:param print_smt_time: Whether to print out the time that was spent on SMT-solving.
 	:return: Either True, False or None (in case no definite answer could be given).
 	"""
 	base_step_k        = 0
@@ -273,6 +301,8 @@ def run_kinduction_bmc(file_base: str, file_induction: str, timelimit: int=None)
 					return False
 				else:
 					base_step_k += 1
+					if base_step_k > 1 and print_smt_time:
+						print("Runtime SMT-solver: " + "{0:0.2f}".format(identify_smt_time(base_out)) + "s")
 					print("Base step k = " + str(base_step_k))
 					base_call     = insert_k_into_callstring(VERIFIER_BASE_CALL, base_step_k)
 					base_out_file = tempfile.TemporaryFile()
@@ -289,6 +319,8 @@ def run_kinduction_bmc(file_base: str, file_induction: str, timelimit: int=None)
 					return True
 				else:
 					induction_step_k += 1
+					if induction_step_k > 1 and print_smt_time:
+						print("Runtime SMT-solver: " + "{0:0.2f}".format(identify_smt_time(induction_out)) + "s")
 					print("Induction step k = " + str(induction_step_k))
 					file_induction     = insert_k_into_induction_file(file_induction, induction_step_k)
 					induction_call     = insert_k_into_callstring(VERIFIER_BASE_CALL, induction_step_k)
@@ -298,12 +330,13 @@ def run_kinduction_bmc(file_base: str, file_induction: str, timelimit: int=None)
 		if is_timeout(timelimit): return None
 		time.sleep(POLL_INTERVAL)
 
-def verify(input_file: str, timelimit: int=None):
+def verify(input_file: str, timelimit: int=None, print_smt_time:bool=False):
 	"""
 	The main entry point for the k-Induction algorithm. Handles everything that concerns the k-Induction approach, from
 	parsing, code transformation up to verifier execution and output.
 	:param input_file: A filename whose file contains the C-code to run k-Induction on.
 	:param timelimit: An optional limit on the CPU-time, in seconds.
+	:param print_smt_time: Whether to print out the time that was spent on SMT-solving.
 	:return: Either True, False or None (in case no definite answer could be given).
 	:rtype: False, True or None
 	"""
@@ -312,15 +345,15 @@ def verify(input_file: str, timelimit: int=None):
 	file_induction_step = prepare_induction_step(input_file)
 	print("Starting k-Induction processes...")
 	if VERIFIER_IS_INCREMENTAL:
-		result = run_kinduction_incremental_bmc(file_base_step, file_induction_step, timelimit)
+		result = run_kinduction_incremental_bmc(file_base_step, file_induction_step, timelimit, print_smt_time)
 	else:
-		result = run_kinduction_bmc(file_base_step, file_induction_step, timelimit)
+		result = run_kinduction_bmc(file_base_step, file_induction_step, timelimit, print_smt_time)
 	if result == True:
 		print("VERIFICATION SUCCESSFUL")
 	elif result == False:
 		print("VERIFICATION FAILED")
 	else:
-		print("VERIFICATION INCOMPLETE")
+		print("VERIFICATION INCONCLUSIVE")
 	return result
 
 def __main__():
@@ -333,10 +366,11 @@ def __main__():
 	parser = argparse.ArgumentParser(description=DESCRIPTION)
 	parser.add_argument("input", type=str)
 	parser.add_argument("-t", "--timelimit", type=int, dest="timelimit", help="The maximum CPU-time [s] for the verification.")
+	parser.add_argument("--smt-time", action="store_true", dest="smt_time", help="Prints out the time that was spent on SMT-solving.")
 
 	args = parser.parse_args()
 
-	verify(args.input, args.timelimit)
+	verify(args.input, args.timelimit, args.smt_time)
 
 	exit(0)
 
