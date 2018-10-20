@@ -9,18 +9,17 @@ import tempfile
 import re
 import time
 import psutil
+import yaml
 
 from pycparserext.ext_c_parser import GnuCParser
 from pycparserext.ext_c_generator import GnuCGenerator
 from canalyzer import *
 from ctransformer import *
 
-# TODO move to config
+# Default configuration. Real configuration is read from the user's configuration file.
 VERIFIER_IS_INCREMENTAL       = False
-#VERIFIER_BASE_CALL            = ["cbmc-ps.sh", "--incremental-check main.X", "--no-unwinding-assertions"]
-#VERIFIER_INDUCTION_CALL       = ["cbmc-ps.sh", "--incremental-check main.X", "--stop-when-unsat", "--no-unwinding-assertions"]
-VERIFIER_BASE_CALL            = ["cbmc.sh", "--unwindset", "main.X:KINCREMENT", "--no-unwinding-assertions"]
-VERIFIER_INDUCTION_CALL       = ["cbmc.sh", "--unwindset", "main.X:KINCREMENT", "--no-unwinding-assertions"]
+VERIFIER_BASE_CALL            = "cbmc.sh --unwindset main.X:KINCREMENT --no-unwinding-assertions"
+VERIFIER_INDUCTION_CALL       = "cbmc.sh --unwindset main.X:KINCREMENT --no-unwinding-assertions"
 VERIFIER_KINCREMENT_STRING    = "KINCREMENT"
 VERIFIER_FALSE_REGEX          = "VERIFICATION FAILED"
 VERIFIER_TRUE_REGEX           = "VERIFICATION SUCCESSFUL"
@@ -366,6 +365,34 @@ def verify(input_file: str, timelimit: int=None, print_smt_time:bool=False):
 		print("VERIFICATION INCONCLUSIVE")
 	return result
 
+def read_config(config_file_name: str):
+	"""
+	Reads the YAML config from the given configuration file name into the global variables.
+	:param config_file_name: The file name of the YAML configuration.
+	"""
+	global VERIFIER_IS_INCREMENTAL, VERIFIER_BASE_CALL, VERIFIER_INDUCTION_CALL, VERIFIER_KINCREMENT_STRING, \
+		VERIFIER_FALSE_REGEX, VERIFIER_TRUE_REGEX, VERIFIER_K_REGEX, VERIFIER_SMT_TIME_REGEX_START, \
+		VERIFIER_SMT_TIME_REGEX_END, POLL_INTERVAL, VERIFIER_ASSUME_FUNCTION_NAME, VERIFIER_ERROR_FUNCTION_NAME, \
+		MAIN_FUNCTION_NAME, ASSERT_FUNCTION_NAME
+	with open(config_file_name) as config_file:
+		config = yaml.load(config_file)
+		VERIFIER_IS_INCREMENTAL       = config["verifier"].get("incremental", VERIFIER_IS_INCREMENTAL)
+		VERIFIER_BASE_CALL            = config["verifier"].get("base_call", VERIFIER_BASE_CALL).split()
+		VERIFIER_INDUCTION_CALL       = config["verifier"].get("induction_call", VERIFIER_INDUCTION_CALL).split()
+		VERIFIER_KINCREMENT_STRING    = config["verifier"].get("k_increment_string", VERIFIER_KINCREMENT_STRING)
+		VERIFIER_FALSE_REGEX          = config["verifier"]["output"].get("false_regex", VERIFIER_FALSE_REGEX)
+		VERIFIER_TRUE_REGEX           = config["verifier"]["output"].get("true_regex", VERIFIER_TRUE_REGEX)
+		VERIFIER_K_REGEX              = config["verifier"]["output"].get("k_regex", VERIFIER_K_REGEX)
+		VERIFIER_SMT_TIME_REGEX_START = config["verifier"]["output"].get("smt_time_start_regex",
+																		 VERIFIER_SMT_TIME_REGEX_START)
+		VERIFIER_SMT_TIME_REGEX_END   = config["verifier"]["output"].get("smt_time_end_regex",
+																		 VERIFIER_SMT_TIME_REGEX_END)
+		POLL_INTERVAL                 = config["verifier"]["output"].get("poll_interval", POLL_INTERVAL)
+		VERIFIER_ASSUME_FUNCTION_NAME = config["input"].get("assume_function", VERIFIER_ASSUME_FUNCTION_NAME)
+		VERIFIER_ERROR_FUNCTION_NAME  = config["input"].get("error_function", VERIFIER_ERROR_FUNCTION_NAME)
+		MAIN_FUNCTION_NAME            = config["input"].get("main_function", MAIN_FUNCTION_NAME)
+		ASSERT_FUNCTION_NAME          = config["input"].get("assert_function", ASSERT_FUNCTION_NAME)
+
 def __main__():
 	DESCRIPTION = "Runs k-Induction on a given C-file by utilizing an (incremental) bounded model checker. " \
 				  "Currently, some constraints are imposed on the C code: It has to contain the entry function named " \
@@ -374,17 +401,23 @@ def __main__():
 				  "statement that contains the verification condition. The external verifier can be configured via " \
 				  "the config file verifier.config."
 	parser = argparse.ArgumentParser(description=DESCRIPTION)
-	parser.add_argument("input", type=str)
-	parser.add_argument("-t", "--timelimit", type=int, dest="timelimit", help="The maximum CPU-time [s] for the verification.")
-	parser.add_argument("--smt-time", action="store_true", dest="smt_time", help="Prints out the time that was spent on SMT-solving.")
+	parser.add_argument("input", type=str, help="The C input file to verify.")
+	parser.add_argument("-c", "--config", required=True, type=str, help="The verifier configuration file.")
+	parser.add_argument("-t", "--timelimit",type=int, help="The maximum CPU-time [s] for the verification.")
+	parser.add_argument("--smt-time", action="store_true", help="Prints out the time that was spent on SMT-solving.")
 
 	args = parser.parse_args()
 
+	# Registers signal handler so we can kill child processes.
 	signal.signal(signal.SIGINT, signal_handler)
 	signal.signal(signal.SIGQUIT, signal_handler)
 	signal.signal(signal.SIGABRT, signal_handler)
 	signal.signal(signal.SIGTERM, signal_handler)
 
+	# Reads config into global variables.
+	read_config(args.config)
+
+	# Runs the verification task.
 	verify(args.input, args.timelimit, args.smt_time)
 
 	exit(0)
