@@ -1,0 +1,18 @@
+verifier:
+  incremental       : no
+  base_call         : "cbmc.sh --unwindset main.X:KINCREMENT --no-unwinding-assertions"
+  induction_call    : "cbmc.sh --unwindset main.X:KINCREMENT --no-unwinding-assertions"
+  k_increment_string: "KINCREMENT"
+  output:
+    false_regex         : "VERIFICATION FAILED"
+    true_regex          : "VERIFICATION SUCCESSFUL"
+    k_regex             : "VERIFICATION FAILED|VERIFICATION SUCCESSFUL"
+    smt_time_start_regex: "Runtime decision procedure: "
+    smt_time_end_regex  : "s"
+    poll_interval       : 2
+
+input:
+  main_function  : "main"
+  assert_function: "assert"
+  assume_function: "__VERIFIER_assume"
+  error_function : "__VERIFIER_error"
