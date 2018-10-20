@@ -1,6 +1,7 @@
 import fcntl
 import io
 import os
+import signal
 import subprocess
 import argparse
 import shutil
@@ -29,6 +30,16 @@ VERIFIER_SMT_TIME_REGEX_END   = "s"
 VERIFIER_ASSUME_FUNCTION_NAME = "__VERIFIER_assume"
 MAIN_FUNCTION_NAME            = "main"
 POLL_INTERVAL                 = 2
+
+def signal_handler(sig, frame):
+	"""
+	Captures the shutdown signals and cleans up all child processes.
+	"""
+	parent = psutil.Process(os.getpid())
+	for child in parent.children(recursive=True):
+		print("kill " + str(child))
+		child.kill()
+	sys.exit(0)
 
 def prepare_base_step(input_file: str):
 	"""
@@ -369,6 +380,11 @@ def __main__():
 	parser.add_argument("--smt-time", action="store_true", dest="smt_time", help="Prints out the time that was spent on SMT-solving.")
 
 	args = parser.parse_args()
+
+	signal.signal(signal.SIGINT, signal_handler)
+	signal.signal(signal.SIGQUIT, signal_handler)
+	signal.signal(signal.SIGABRT, signal_handler)
+	signal.signal(signal.SIGTERM, signal_handler)
 
 	verify(args.input, args.timelimit, args.smt_time)
 
