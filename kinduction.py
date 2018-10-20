@@ -37,7 +37,6 @@ def signal_handler(sig, frame):
 	"""
 	parent = psutil.Process(os.getpid())
 	for child in parent.children(recursive=True):
-		print("kill " + str(child))
 		child.kill()
 	sys.exit(0)
 
