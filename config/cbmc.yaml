@@ -1,7 +1,9 @@
 verifier:
   incremental       : no
-  base_call         : "cbmc.sh --unwindset main.X:KINCREMENT --no-unwinding-assertions"
-  induction_call    : "cbmc.sh --unwindset main.X:KINCREMENT --no-unwinding-assertions"
+  base_call         : "./cbmc.sh --unwindset main.X:KINCREMENT --no-unwinding-assertions"
+  induction_call    : "./cbmc.sh --unwindset main.X:KINCREMENT --no-unwinding-assertions"
+  witness_gen_argument: "--graphml-witness FILENAME"
+  filename_string: "FILENAME"
   k_increment_string: "KINCREMENT"
   output:
     false_regex         : "VERIFICATION FAILED"

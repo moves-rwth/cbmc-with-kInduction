@@ -378,13 +378,15 @@ def read_config(config_file_name: str):
 	global VERIFIER_IS_INCREMENTAL, VERIFIER_BASE_CALL, VERIFIER_INDUCTION_CALL, VERIFIER_KINCREMENT_STRING, \
 		VERIFIER_FALSE_REGEX, VERIFIER_TRUE_REGEX, VERIFIER_K_REGEX, VERIFIER_SMT_TIME_REGEX_START, \
 		VERIFIER_SMT_TIME_REGEX_END, POLL_INTERVAL, VERIFIER_ASSUME_FUNCTION_NAME, VERIFIER_ERROR_FUNCTION_NAME, \
-		MAIN_FUNCTION_NAME, ASSERT_FUNCTION_NAME
+		MAIN_FUNCTION_NAME, ASSERT_FUNCTION_NAME, VERIFIER_WITNESS_FILENAME_STRING, VERIFIER_WITNESS_GEN_ARGUMENT
 	with open(config_file_name) as config_file:
 		config = yaml.load(config_file)
 		VERIFIER_IS_INCREMENTAL       = config["verifier"].get("incremental", VERIFIER_IS_INCREMENTAL)
 		VERIFIER_BASE_CALL            = config["verifier"].get("base_call", VERIFIER_BASE_CALL).split()
 		VERIFIER_INDUCTION_CALL       = config["verifier"].get("induction_call", VERIFIER_INDUCTION_CALL).split()
-		VERIFIER_KINCREMENT_STRING    = config["verifier"].get("k_increment_string", VERIFIER_KINCREMENT_STRING)
+	    VERIFIER_WITNESS_GEN_ARGUMENT = config["verifier"].get("witness_gen_argument", VERIFIER_WITNESS_GEN_ARGUMENT)
+	    VERIFIER_KINCREMENT_STRING    = config["verifier"].get("k_increment_string", VERIFIER_KINCREMENT_STRING)
+		VERIFIER_WITNESS_FILENAME_STRING = config["verifier"].get("witness_filename_string", VERIFIER_WITNESS_FILENAME_STRING)
 		VERIFIER_FALSE_REGEX          = config["verifier"]["output"].get("false_regex", VERIFIER_FALSE_REGEX)
 		VERIFIER_TRUE_REGEX           = config["verifier"]["output"].get("true_regex", VERIFIER_TRUE_REGEX)
 		VERIFIER_K_REGEX              = config["verifier"]["output"].get("k_regex", VERIFIER_K_REGEX)
@@ -408,8 +410,9 @@ def __main__():
 	parser = argparse.ArgumentParser(description=DESCRIPTION)
 	parser.add_argument("input", type=str, help="The C input file to verify.")
 	parser.add_argument("-c", "--config", required=True, type=str, help="The verifier configuration file.")
-	parser.add_argument("-t", "--timelimit",type=int, help="The maximum CPU-time [s] for the verification.")
+	parser.add_argument("-t", "--timelimit", type=int, help="The maximum CPU-time [s] for the verification.")
 	parser.add_argument("--smt-time", action="store_true", help="Prints out the time that was spent on SMT-solving.")
+	parser.add_argument("-w", "--witness", action="store_true", help="Generates a witness for the verification. Currently tested only for CBMC.")
 
 	args = parser.parse_args()
 
@@ -422,8 +425,11 @@ def __main__():
 	# Reads config into global variables.
 	read_config(args.config)
 
+    if args.witness:
+        print("Witness")
+
 	# Runs the verification task.
-	verify(args.input, args.timelimit, args.smt_time)
+	# verify(args.input, args.timelimit, args.smt_time)
 
 	exit(0)
 
