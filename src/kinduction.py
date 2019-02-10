@@ -386,8 +386,8 @@ def read_config(config_file_name: str):
 		VERIFIER_IS_INCREMENTAL       = config["verifier"].get("incremental", VERIFIER_IS_INCREMENTAL)
 		VERIFIER_BASE_CALL            = config["verifier"].get("base_call", VERIFIER_BASE_CALL).split()
 		VERIFIER_INDUCTION_CALL       = config["verifier"].get("induction_call", VERIFIER_INDUCTION_CALL).split()
-	    VERIFIER_WITNESS_GEN_ARGUMENT = config["verifier"].get("witness_gen_argument", VERIFIER_WITNESS_GEN_ARGUMENT)
-	    VERIFIER_KINCREMENT_STRING    = config["verifier"].get("k_increment_string", VERIFIER_KINCREMENT_STRING)
+		VERIFIER_WITNESS_GEN_ARGUMENT = config["verifier"].get("witness_gen_argument", VERIFIER_WITNESS_GEN_ARGUMENT)
+		VERIFIER_KINCREMENT_STRING    = config["verifier"].get("k_increment_string", VERIFIER_KINCREMENT_STRING)
 		VERIFIER_WITNESS_FILENAME_STRING = config["verifier"].get("witness_filename_string", VERIFIER_WITNESS_FILENAME_STRING)
 		VERIFIER_FALSE_REGEX          = config["verifier"]["output"].get("false_regex", VERIFIER_FALSE_REGEX)
 		VERIFIER_TRUE_REGEX           = config["verifier"]["output"].get("true_regex", VERIFIER_TRUE_REGEX)
@@ -427,8 +427,8 @@ def __main__():
 	# Reads config into global variables.
 	read_config(args.config)
 
-    if args.witness:
-        print("Witness")
+	if args.witness:
+		print("Witness")
 
 	# Runs the verification task.
 	# verify(args.input, args.timelimit, args.smt_time)
