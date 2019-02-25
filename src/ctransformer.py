@@ -159,7 +159,6 @@ class CTransformer:
 		:raise: NonSvCompTypeException in case a variable was given that can not be havoced.
 		:rtype: c_ast.Compound
 		"""
-		# TODO
 		body_items = []
 		# Creates the havoc assignment for each variable.
 		for declaration in declarations:
@@ -253,7 +252,8 @@ class CTransformer:
 				)
 		# Bundles the havoc assignments into one compound statement.
 		if len(body_items) == 0:
-			sys.stderr.write("WARNING: Could not havoc variable of declaration " + GnuCGenerator().visit(declaration))
+			sys.stderr.write("WARNING: Could not havoc variable of declaration " + GnuCGenerator().visit(declaration) +
+							 "\n")
 		return c_ast.Compound(body_items)
 
 	def get_svcomp_type(self, type_names: list):

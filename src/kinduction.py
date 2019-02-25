@@ -1,3 +1,7 @@
+"""
+Main entry file. Handles the general structure of the verification process, including process execution and result
+interpretation.
+"""
 import fcntl
 import io
 import os
@@ -5,6 +9,7 @@ import signal
 import subprocess
 import argparse
 import shutil
+import sys
 import tempfile
 import re
 import time
@@ -18,8 +23,8 @@ from ctransformer import *
 
 # Default configuration. Real configuration is read from the user's configuration file.
 VERIFIER_IS_INCREMENTAL       = False
-VERIFIER_BASE_CALL            = "cbmc.sh --unwindset main.X:KINCREMENT --no-unwinding-assertions"
-VERIFIER_INDUCTION_CALL       = "cbmc.sh --unwindset main.X:KINCREMENT --no-unwinding-assertions"
+VERIFIER_BASE_CALL            = "cbmc.sh --unwindset main.X:KINCREMENT --no-unwinding-assertions".split()
+VERIFIER_INDUCTION_CALL       = "cbmc.sh --unwindset main.X:KINCREMENT --no-unwinding-assertions".split()
 VERIFIER_KINCREMENT_STRING    = "KINCREMENT"
 VERIFIER_FALSE_REGEX          = "VERIFICATION FAILED"
 VERIFIER_TRUE_REGEX           = "VERIFICATION SUCCESSFUL"
@@ -32,7 +37,7 @@ POLL_INTERVAL                 = 2
 
 def signal_handler(sig, frame):
 	"""
-	Captures the shutdown signals and cleans up all child processes.
+	Captures the shutdown signals and cleans up all child processes of this process.
 	"""
 	parent = psutil.Process(os.getpid())
 	for child in parent.children(recursive=True):
@@ -282,7 +287,7 @@ def insert_k_into_induction_file(file_induction: str, k: int):
 
 def run_kinduction_bmc(file_base: str, file_induction: str, timelimit: int=None, print_smt_time:bool=False):
 	"""
-	Runs the k-Induction algorithm on the given files. Starts two processes, one for the base step, one for the
+	Runs the k-induction algorithm on the given files. Starts two processes, one for the base step, one for the
 	induction step. Returns the answer to the verification task as soon as one of the processes stop. Note that this
 	function call may run indefinitely. This function shall be used if there is no incremental BMC option for the
 	underlying verifier, hence incremental BMC will be simulated.
@@ -341,9 +346,9 @@ def run_kinduction_bmc(file_base: str, file_induction: str, timelimit: int=None,
 
 def verify(input_file: str, timelimit: int=None, print_smt_time:bool=False):
 	"""
-	The main entry point for the k-Induction algorithm. Handles everything that concerns the k-Induction approach, from
+	The main entry point for the k-induction algorithm. Handles everything that concerns the k-induction approach, from
 	parsing, code transformation up to verifier execution and output.
-	:param input_file: A filename whose file contains the C-code to run k-Induction on.
+	:param input_file: A filename whose file contains the C code to run k-induction on.
 	:param timelimit: An optional limit on the CPU-time, in seconds.
 	:param print_smt_time: Whether to print out the time that was spent on SMT-solving.
 	:return: Either True, False or None (in case no definite answer could be given).
@@ -394,7 +399,7 @@ def read_config(config_file_name: str):
 		ASSERT_FUNCTION_NAME          = config["input"].get("assert_function", ASSERT_FUNCTION_NAME)
 
 def __main__():
-	DESCRIPTION = "Runs k-Induction on a given C-file by utilizing an (incremental) bounded model checker. " \
+	DESCRIPTION = "Runs k-induction on a given C-file by utilizing an (incremental) bounded model checker. " \
 				  "Currently, some constraints are imposed on the C code: It has to contain the entry function named " \
 				  "\"main\", inside which the loop over whom the k-Induction shall be run is located. The " \
 				  "verification task shall be given by a __VERIFIER_error() call and has to be guarded by one if " \
@@ -408,7 +413,7 @@ def __main__():
 
 	args = parser.parse_args()
 
-	# Registers signal handler so we can kill child processes.
+	# Registers signal handler so we can kill all of our child processes.
 	signal.signal(signal.SIGINT, signal_handler)
 	signal.signal(signal.SIGQUIT, signal_handler)
 	signal.signal(signal.SIGABRT, signal_handler)
