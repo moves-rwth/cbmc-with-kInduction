@@ -61,7 +61,7 @@ def prepare_induction_step(input_file: str):
 	Prepares the input C file for the execution of the induction step. It parses the code, havocs the main loop
 	variables and adds the property assumption to the beginning of the loop body. When finished, the C code is written
 	to a temporary working file which is then returned.
-	:param input_file: The input C file to prepare.
+	:param input_file: The input C file location to prepare.
 	:return: The location of the prepared C file for the induction step.
 	:rtype: str
 	"""
@@ -70,8 +70,6 @@ def prepare_induction_step(input_file: str):
 		ast = parser.parse(file.read())
 	analyzer    = CAnalyzer(ast)
 	transformer = CTransformer(ast)
-	# Transforms code to be a little bit more uniform and easier to work with.
-	# transformer.deanonymize_aggregates()
 	# Identifies main components of the code.
 	try:
 		main_function      = analyzer.identify_function(MAIN_FUNCTION_NAME)
@@ -90,6 +88,8 @@ def prepare_induction_step(input_file: str):
 	except NonSvCompTypeException as err:
 		print(err)
 		sys.exit(1)
+	for svcomp_havoc_function in svcomp_havoc_functions:
+		transformer.insert(transformer.create_svcomp_function_declaration(svcomp_havoc_function), before=ast.ext[0])
 	conjunct_property = transformer.join_expression_list("&&", property)
 	negated_property  = transformer.add_to_expression(conjunct_property, "!")
 	assume_property   = transformer.create_function_call(VERIFIER_ASSUME_FUNCTION_NAME, negated_property)

@@ -42,7 +42,7 @@ class NonSvCompTypeException(Exception):
 
 class CompoundInserter(c_ast.NodeVisitor):
 	"""
-	Inserts the given node into the AST in a compound block once it encounters its new neighbouring node.
+	Inserts the given node into the AST in a compound block or AST once it encounters its new neighbouring node.
 	"""
 	def __init__(self, new_node: c_ast.Node, before_node: c_ast.Node, after_node: c_ast.Node):
 		self.new_node    = new_node
@@ -53,6 +53,14 @@ class CompoundInserter(c_ast.NodeVisitor):
 		if type(node) != FuncDeclExt and type(node) != TypeDeclExt:
 			for c in node:
 				self.visit(c)
+
+	def visit_FileAST(self, node):
+		for i, (c_name, c) in enumerate(node.children()):
+			if self.before_node and c == self.before_node:
+				node.ext.insert(i, self.new_node)
+			elif self.after_node and c == self.after_node:
+				node.ext.insert(i + 1, self.new_node)
+			self.visit(c)
 
 	def visit_Compound(self, node):
 		for i, (c_name, c) in enumerate(node.children()):
@@ -322,6 +330,51 @@ class CTransformer:
 			raise NonSvCompTypeException(" ".join(type_names))
 		return svcomp_type
 
+	def get_c_type(self, svcomp_type: str):
+		"""
+		Searches for the corresponding list of C types for the given SV comp type.
+		:param type_names: A string representing the SV comp type, e.g. "uint".
+		:raise: NonSvTypeException in case the SV comp type could not be identified.
+		:return: A list of strings containing the C types, e.g. ["unsigned", "int"].
+		"""
+		type_names = set()
+		# Implements the translation from C types to SV comp types.
+		if svcomp_type == "bool":
+			type_names.add("bool")
+		elif svcomp_type == "float":
+			type_names.add("float")
+		elif svcomp_type == "double":
+			type_names.add("double")
+		elif svcomp_type == "loff_t":
+			type_names.add("loff_t")
+		elif svcomp_type == "pchar":
+			type_names.add("pchar")
+		elif svcomp_type == "pthread_t":
+			type_names.add("pthread_t")
+		elif svcomp_type == "sector_t":
+			type_names.add("sector_t")
+		elif svcomp_type == "size_t":
+			type_names.add("size_t")
+		elif svcomp_type == "u32":
+			type_names.add("u32")
+		elif svcomp_type == "char":
+			type_names.add("char")
+		elif svcomp_type == "short":
+			type_names.add("short")
+		elif svcomp_type == "long":
+			type_names.add("long")
+		elif svcomp_type == "int":
+			type_names.add("int")
+		elif svcomp_type == "pointer":
+			type_names.add("void")
+			type_names.add("*")
+		if svcomp_type.startswith("u"):
+			type_names.add("unsigned")
+		if not svcomp_type:
+			print(type_names)
+			raise NonSvCompTypeException(svcomp_type)
+		return type_names
+
 	def add_to_expression(self, expression: c_ast.Node, operator: str, addition: c_ast.ExprList=None):
 		"""
 		Adds the additional expression to the given expression, concatenated with the given operator. If the additional
@@ -388,6 +441,21 @@ class CTransformer:
 		:rtype: c_ast.FuncCall
 		"""
 		return c_ast.FuncCall(c_ast.ID(name), parameters)
+
+	def create_svcomp_function_declaration(self, name: str):
+		"""
+		Creates a declaration for the given SV comp function name, e.g. "__VERIFIER_nondet_int".
+		:param name: The SV comp function name.
+		:return: c_ast.Decl
+		"""
+		return_type = self.get_c_type(name.replace("__VERIFIER_nondet_", ""))
+		# Need to handle pointers separately.
+		if "*" in return_type:
+			return_type.remove("*")
+			return_code = c_ast.PtrDecl([], c_ast.TypeDecl(name, [], c_ast.IdentifierType(list(return_type))))
+		else:
+			return_code = c_ast.TypeDecl(name, [], c_ast.IdentifierType(return_type))
+		return c_ast.Decl(name, [], ["extern"], [], c_ast.FuncDecl(None, return_code), None, None)
 
 	def insert(self, node: c_ast.Node, before: c_ast.Node=None, after: c_ast.Node=None):
 		"""
