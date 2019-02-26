@@ -141,8 +141,8 @@ class CTransformer:
 	def deanonymize_aggregates(self):
 		"""
 		Deanonymizes all anonymous aggregates such that they are identified by a unique name. An example of an anonymous
-		aggregate: "typedef struct { int x; } s;", which will be changed to "typedef struct _s { int x; } s;" sucht that
-		it can be identified by the "_s" is not anonymous anymore.
+		aggregate: "typedef struct { int x; } s;", which will be changed to "typedef struct _s { int x; } s;" such that
+		it can be identified by the "_s". Hence, it is not anonymous anymore after this function call.
 		"""
 		collector = IdentifierCollector()
 		collector.visit(self.ast)
@@ -275,6 +275,7 @@ class CTransformer:
 		"""
 		svcomp_type = None
 		type_names = set(type_names)
+		# Implements the translation from C types to SV comp types.
 		if "bool" in type_names:
 			svcomp_type = "bool"
 		elif "float" in type_names:
@@ -390,6 +391,9 @@ class CTransformer:
 	def from_code(self, code: str, parser=None):
 		"""
 		Takes (partial) C code as a string and returns the AST node that belongs to it. Wraps everything in a block.
+		Note: This function may not understand all code strings and shall be used with care. But, it understands
+		everything that is either directly valid C code, or partial code that can be put into a function body or as a
+		condition block (e.g. if and while conditions).
 		:param code: The C code.
 		:param parser: If you have already created a parser, you can hint it here. No need to create multiple parsers.
 		:return: The corresponding AST compound.
