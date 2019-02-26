@@ -3,8 +3,8 @@ Performs various (static) C code analyses using pycparser.
 Currently supported analyses:
 	- Variable occurrence:
 		Lists all variables that occur in a function.
-	- Modified variable occurrence:
-		Lists all modified variables that occur in a function.
+	- Variable modification:
+		Lists all variables that are modified in a function.
 	- Variable type inference
 		Finds the type of a variable, resolves typedefs.
 	- Variable modification check
@@ -54,7 +54,7 @@ class NoMainLoopException(Exception):
 	def __str__(self):
 		return "Can not find a loop within function " + self.main_function_name + "."
 
-class NoMainFunctionException(Exception):
+class NoSuchFunctionException(Exception):
 	"""
 	Indicates that no main function of the configured main function name could be found in the AST.
 	"""
@@ -124,6 +124,7 @@ class PropertyFinder(c_ast.NodeVisitor):
 				self.properties.exprs += node.args.exprs
 			else:
 				self.properties.exprs.append(node.args)
+
 class PropertyStatementFinder(c_ast.NodeVisitor):
 	"""
 	Finds the statement surrounding the verification property in the AST node and puts it into its property member.
@@ -247,6 +248,7 @@ class CAnalyzer:
 		collector = DeclarationCollector()
 		collector.visit(self.ast)
 		for declaration, scope in collector.declarations:
+			# Declaration can be valid in either the function parameters, the function body or in the global scope.
 			if scope == function or scope == function.body or scope == self.ast:
 				declarations.append(declaration)
 				self.resolve_typedefs(declaration.type, typedefs)
@@ -296,16 +298,16 @@ class CAnalyzer:
 
 	def identify_function(self, function_name:str):
 		"""
-		Identifies the main function in the given AST.
+		Identifies the function with the given identifier name in the AST.
 		:param function_name: The identifier of the function to search for.
-		:raise: NoMainFunctionException if no main function of the configured main function name could be identified.
+		:raise: NoSuchFunctionException if no function of the given function name could be identified.
 		:return: The main function.
 		:rtype: c_ast.FuncDef
 		"""
 		for item in self.ast.ext:
 			if type(item) == c_ast.FuncDef and type(item.decl) == c_ast.Decl and item.decl.name == function_name:
 				return item
-		raise NoMainFunctionException
+		raise NoSuchFunctionException(function_name)
 
 	def identify_main_loop(self):
 		"""
@@ -320,6 +322,7 @@ class CAnalyzer:
 		loop_finder = LoopFinder()
 		loop_finder.visit(main_function.body)
 		loops = loop_finder.loops
+		# Checks if exactly one loop is present.
 		if len(loops) == 0:
 			raise NoMainLoopException
 		elif len(loops) > 1:
@@ -365,12 +368,15 @@ class CAnalyzer:
 
 	def resolve_typedefs(self, declaration: c_ast.Node, typedefs: list):
 		"""
-		Resolves any typedefs present in the given declaration for the given typedef list. Works in-place and applies
-		itself recursively until no more typedefs are found.
+		Resolves any typedefs present in the given declaration for the given typedef list. Works in-place on the AST and
+		applies itself recursively until no more typedefs are found.
 		:param declaration: The declaration in which to resolve typedefs in. Type is one of c_ast.TypeDecl,
 			c_ast.PtrDecl or c_ast.ArrayDecl.
 		:param typedefs: A list of typedefs to check against.
 		"""
+		# Three cases to be distinguished: Type, array or pointer declaration. For arrays, pointers, the type
+		# resolving is just applied recursively. For a type declaration, all typedefs are first resolved, and in case we
+		# have a aggregate type (struct or union), the resolving is again applied recursively to their members.
 		if type(declaration) == c_ast.TypeDecl:
 			for typedef in typedefs:
 				if type(declaration.type) == c_ast.Struct or type(declaration.type) == c_ast.Union:
