@@ -269,6 +269,7 @@ class CAnalyzer:
 			# int* y = &x;
 			# *y = 2;
 			# Hence, we need to check if occurring on LHS or the address is somehow taken from it. Then we return True.
+			# Some static analysis algorithms may be useful here. What does Frama-C implement for this?
 			pass
 		return True
 

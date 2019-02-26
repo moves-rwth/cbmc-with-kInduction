@@ -106,7 +106,6 @@ def prepare_induction_step(input_file: str):
 		transformer.insert(i_initialization, before=main_loop)
 		transformer.insert(i_increment, before=main_loop.stmt.block_items[0])
 	# Inserts new code pieces.
-	print(GnuCGenerator().visit(havoc_block))
 	transformer.insert(havoc_block, before=main_loop)
 	transformer.insert(assume_property, before=main_loop.stmt.block_items[0])
 	# Writes the transformed code to a temporary file.

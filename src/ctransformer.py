@@ -175,14 +175,18 @@ class CTransformer:
 			c_ast.ArrayRef or c_ast.UnaryOp with op="*".
 		:rtype: c_ast.Compound
 		"""
+		# Here be dragons. I'm sorry. Most likely contains some bugs.
+		# TODO Should be tested thoroughly.
 		body_items = []
 		# First, registers itself into the parent struct, if there is one.
 		if type(parent) == c_ast.StructRef and parent.field is None:
 			parent.field = c_ast.ID(declaration.name)
 		# Checks for five main cases: We have a basic identifier, a struct, a union, an array or a pointer.
+		# If a compound type is encountered, this function is called recursively on the child declaration(s).
 		if type(declaration.type) == c_ast.TypeDecl:
 			# CASE STRUCT
 			if type(declaration.type.type) == c_ast.Struct:
+				# Iterates over every struct member and creates a havoc block for this. Useful for nested structs.
 				for member in declaration.type.type.decls:
 					if parent is None:
 						new_parent = c_ast.StructRef(c_ast.ID(declaration.name), ".", None)
@@ -191,6 +195,7 @@ class CTransformer:
 					body_items.append(self.create_havoc_assignment(member, new_parent))
 			# CASE UNION
 			elif type(declaration.type.type) == c_ast.Union and len(declaration.type.type.decls) > 0:
+				# For a union, we just havoc the very first member.
 				if parent is None:
 					new_parent = c_ast.StructRef(c_ast.ID(declaration.name), ".", None)
 				else:
@@ -198,6 +203,7 @@ class CTransformer:
 				body_items.append(self.create_havoc_assignment(declaration.type.type.decls[0], new_parent))
 			# CASE BASIC IDENTIFIER
 			elif type(declaration.type.type) == c_ast.IdentifierType:
+				# Base case of the recursion.
 				havoc_function = VERIFIER_NONDET_FUNCTION_NAME + self.get_svcomp_type(declaration.type.type.names)
 				rvalue = self.create_function_call(havoc_function)
 				if parent is None:
@@ -211,6 +217,7 @@ class CTransformer:
 			modified_declaration = copy.deepcopy(declaration)
 			modified_declaration.type = modified_declaration.type.type
 			if type(declaration.type.dim) == c_ast.Constant and declaration.type.dim.type == "int":
+				# Iterates over every member of the array (Thus, the size has to be constant).
 				for i in range(int(declaration.type.dim.value)):
 					if parent is None:
 						new_parent = c_ast.ID(declaration.name)
@@ -223,12 +230,14 @@ class CTransformer:
 						)
 					)
 			else:
-				print("WARNING: Non-constant array encountered!") # TODO?
+				print("WARNING: Non-constant array encountered!") # TODO? (Can be done by just assigning a pointer.)
 		# CASE POINTER
 		elif type(declaration.type) == c_ast.PtrDecl:
 			if type(declaration.type.type) == c_ast.TypeDecl and \
 					type(declaration.type.type.type) == c_ast.IdentifierType and \
 					("const" not in declaration.type.quals or "void" in declaration.type.type.type.names):
+				# Base case of the recursion. Only entered if we can not dereference the pointer due to either an
+				# unknown type (void pointer) or a constant memory location behind the pointer.
 				havoc_function = VERIFIER_NONDET_FUNCTION_NAME + "pointer"
 				rvalue = self.create_function_call(havoc_function)
 				if parent is None:
@@ -238,6 +247,7 @@ class CTransformer:
 				havoc_variable = c_ast.Assignment("=", lvalue, rvalue)
 				body_items.append(havoc_variable)
 			else:
+				# We can dereference the pointer: Does so and creates a havoc statement for the type behind the pointer.
 				modified_declaration = copy.deepcopy(declaration)
 				modified_declaration.type = modified_declaration.type.type
 				if parent is None:
