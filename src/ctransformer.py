@@ -155,29 +155,37 @@ class CTransformer:
 		Respects the types of those variables, e.g. an integer will be assigned __VERIFIER_nondet_int(). Structs and
 		arrays will be unrolled and their members will be havoced.
 		:param variables: A list of c_ast.Decl.
-		:return: A block containing the havocing of the given variables and a function call for that function.
+		:return: First entry: A set of strings containing the employed non-deterministic assignment SV comp function
+			names, e.g. "__VERIFIER_nondet_int". Second entry: A block containing all havoc assignments for that
+			variable.
 		:raise: NonSvCompTypeException in case a variable was given that can not be havoced.
-		:rtype: c_ast.Compound
+		:rtype: set of str, c_ast.Compound
 		"""
 		body_items = []
+		svcomp_havoc_functions = set()
 		# Creates the havoc assignment for each variable.
 		for declaration in declarations:
-			body_items.append(self.create_havoc_assignment(declaration))
+			rec_svcomp_havoc_functions, havoc_block = self.create_havoc_assignment(declaration)
+			body_items.append(havoc_block)
+			svcomp_havoc_functions = svcomp_havoc_functions.union(rec_svcomp_havoc_functions)
 		# Bundles the havoc assignments into one compound statement.
-		return c_ast.Compound(body_items)
+		return svcomp_havoc_functions, c_ast.Compound(body_items)
 
 	def create_havoc_assignment(self, declaration: c_ast.Decl, parent: c_ast.Node=None):
 		"""
 		Creates a havoc assignment block for the variable declared in the given declaration.
 		:param declaration: The declaration of the variable to havoc.
-		:return: A block containing all havoc assignments for that variable.
+		:return: First entry: A set of strings containing the employed non-deterministic assignment SV comp function
+			names, e.g. "__VERIFIER_nondet_int". Second entry: A block containing all havoc assignments for that
+			variable.
 		:parent: A parent node for aggregates to allow for access of the children. Either c_ast.StructRef,
 			c_ast.ArrayRef or c_ast.UnaryOp with op="*".
-		:rtype: c_ast.Compound
+		:rtype: set of str, c_ast.Compound
 		"""
-		# Here be dragons. I'm sorry. Most likely contains some bugs.
+		# Here be dragons. Most likely contains some bugs.
 		# TODO Should be tested thoroughly.
 		body_items = []
+		svcomp_havoc_functions = set()
 		# First, registers itself into the parent struct, if there is one.
 		if type(parent) == c_ast.StructRef and parent.field is None:
 			parent.field = c_ast.ID(declaration.name)
@@ -192,7 +200,9 @@ class CTransformer:
 						new_parent = c_ast.StructRef(c_ast.ID(declaration.name), ".", None)
 					else:
 						new_parent = c_ast.StructRef(parent, ".", None)
-					body_items.append(self.create_havoc_assignment(member, new_parent))
+					rec_svcomp_havoc_funcs, rec_havoc_block = self.create_havoc_assignment(member, new_parent)
+					body_items.append(rec_havoc_block)
+					svcomp_havoc_functions = svcomp_havoc_functions.union(rec_svcomp_havoc_funcs)
 			# CASE UNION
 			elif type(declaration.type.type) == c_ast.Union and len(declaration.type.type.decls) > 0:
 				# For a union, we just havoc the very first member.
@@ -200,7 +210,10 @@ class CTransformer:
 					new_parent = c_ast.StructRef(c_ast.ID(declaration.name), ".", None)
 				else:
 					new_parent = c_ast.StructRef(parent, ".", None)
-				body_items.append(self.create_havoc_assignment(declaration.type.type.decls[0], new_parent))
+				rec_svcomp_havoc_funcs, rec_havoc_block = self.create_havoc_assignment(declaration.type.type.decls[0],
+																					   new_parent)
+				body_items.append(rec_havoc_block)
+				svcomp_havoc_functions = svcomp_havoc_functions.union(rec_svcomp_havoc_funcs)
 			# CASE BASIC IDENTIFIER
 			elif type(declaration.type.type) == c_ast.IdentifierType:
 				# Base case of the recursion.
@@ -212,6 +225,7 @@ class CTransformer:
 					lvalue = parent
 				havoc_variable = c_ast.Assignment("=", lvalue, rvalue)
 				body_items.append(havoc_variable)
+				svcomp_havoc_functions.add(havoc_function)
 		# CASE ARRAY
 		elif type(declaration.type) == c_ast.ArrayDecl:
 			modified_declaration = copy.deepcopy(declaration)
@@ -223,12 +237,12 @@ class CTransformer:
 						new_parent = c_ast.ID(declaration.name)
 					else:
 						new_parent = parent
-					body_items.append(
-						self.create_havoc_assignment(
+					rec_svcomp_havoc_funcs, rec_havoc_block = self.create_havoc_assignment(
 							modified_declaration,
 							c_ast.ArrayRef(new_parent, c_ast.Constant("int", str(i)))
 						)
-					)
+					body_items.append(rec_havoc_block)
+					svcomp_havoc_functions = svcomp_havoc_functions.union(rec_svcomp_havoc_funcs)
 			else:
 				print("WARNING: Non-constant array encountered!") # TODO? (Can be done by just assigning a pointer.)
 		# CASE POINTER
@@ -239,6 +253,7 @@ class CTransformer:
 				# Base case of the recursion. Only entered if we can not dereference the pointer due to either an
 				# unknown type (void pointer) or a constant memory location behind the pointer.
 				havoc_function = VERIFIER_NONDET_FUNCTION_NAME + "pointer"
+				svcomp_havoc_functions.add(havoc_function)
 				rvalue = self.create_function_call(havoc_function)
 				if parent is None:
 					lvalue = c_ast.ID(declaration.name)
@@ -254,17 +269,15 @@ class CTransformer:
 					new_parent = c_ast.ID(declaration.name)
 				else:
 					new_parent = parent
-				body_items.append(
-						self.create_havoc_assignment(
-								modified_declaration,
-								c_ast.UnaryOp("*", new_parent)
-						)
-				)
+				rec_svcomp_havoc_funcs, rec_havoc_block =  self.create_havoc_assignment(modified_declaration,
+																						c_ast.UnaryOp("*", new_parent))
+				body_items.append(rec_havoc_block)
+				svcomp_havoc_functions = svcomp_havoc_functions.union(rec_svcomp_havoc_funcs)
 		# Bundles the havoc assignments into one compound statement.
 		if len(body_items) == 0:
 			sys.stderr.write("WARNING: Could not havoc variable of declaration " + GnuCGenerator().visit(declaration) +
 							 "\n")
-		return c_ast.Compound(body_items)
+		return svcomp_havoc_functions, c_ast.Compound(body_items)
 
 	def get_svcomp_type(self, type_names: list):
 		"""
