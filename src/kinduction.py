@@ -86,7 +86,7 @@ def prepare_induction_step(input_file: str):
 		sys.exit(1)
 	# Creates new code and functions to be added.
 	try:
-		havoc_block = transformer.create_havoc_block(declarations)
+		svcomp_havoc_functions, havoc_block = transformer.create_havoc_block(declarations)
 	except NonSvCompTypeException as err:
 		print(err)
 		sys.exit(1)
