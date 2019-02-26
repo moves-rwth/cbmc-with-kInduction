@@ -259,8 +259,8 @@ class CAnalyzer:
 		:param block: The block to which the modifications should be local.
 		:return: True or false.
 		"""
-		if "const" in declaration.quals:
-			# Constant variables can not be modified.
+		if "const" in declaration.quals and type(declaration.type) is not c_ast.PtrDecl:
+			# Constant variables can not be modified. Constant pointers can be modified!
 			return False
 		else:
 			# We have a non-aggregate basic C type. We can now check for variable occurrences in LHS of assignments.

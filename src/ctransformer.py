@@ -228,7 +228,7 @@ class CTransformer:
 		elif type(declaration.type) == c_ast.PtrDecl:
 			if type(declaration.type.type) == c_ast.TypeDecl and \
 					type(declaration.type.type.type) == c_ast.IdentifierType and \
-					"void" in declaration.type.type.type.names:
+					("const" not in declaration.type.quals or "void" in declaration.type.type.type.names):
 				havoc_function = VERIFIER_NONDET_FUNCTION_NAME + "pointer"
 				rvalue = self.create_function_call(havoc_function)
 				if parent is None:
