@@ -65,7 +65,7 @@ def prepare_induction_step(input_file: str):
 	:return: The location of the prepared C file for the induction step.
 	:rtype: str
 	"""
-	parser = GnuCParser()
+	parser = GnuCParser(taboutputdir="/tmp")
 	with open(input_file) as file:
 		ast = parser.parse(file.read())
 	analyzer    = CAnalyzer(ast)
@@ -76,7 +76,7 @@ def prepare_induction_step(input_file: str):
 		main_loop          = analyzer.identify_main_loop()
 		declarations       = analyzer.identify_declarations_of_modified_variables(main_loop.stmt, main_function)
 		property           = analyzer.identify_property()
-	except (NoMainFunctionException,
+	except (NoSuchFunctionException,
 			NoMainLoopException,
 			MultipleMainLoopsException,
 			UnidentifiableVariableTypeException) as err:
@@ -276,7 +276,7 @@ def insert_k_into_induction_file(file_induction: str, k: int):
 	if k > 1:
 		# Parses the file (again) and identifies the main function (again). Not super elegant, could surely be improved.
 		with open(file_induction) as file:
-			ast = GnuCParser().parse(file.read())
+			ast = GnuCParser(taboutputdir="/tmp").parse(file.read())
 		main_function = CAnalyzer(ast).identify_function(MAIN_FUNCTION_NAME)
 		CTransformer(ast).replace_initial_value("const unsigned int k = " + str(k - 1) + ";", main_function, k)
 		output_file = tempfile.NamedTemporaryFile(delete=False, suffix=".c")
