@@ -28,6 +28,8 @@ VERIFIER_INDUCTION_CALL       = "cbmc.sh --unwindset main.X:KINCREMENT --no-unwi
 VERIFIER_KINCREMENT_STRING    = "KINCREMENT"
 VERIFIER_WITNESS_FILENAME_STRING    = "FILENAME"
 VERIFIER_WITNESS_GEN_ARGUMENT    = "--graphml-witness FILENAME"
+VERIFIER_WITNESS_BASE_FILENAME = "base"
+VERIFIER_WITNESS_INDUCTION_FILENAME = "induction"
 VERIFIER_FALSE_REGEX          = "VERIFICATION FAILED"
 VERIFIER_TRUE_REGEX           = "VERIFICATION SUCCESSFUL"
 VERIFIER_K_REGEX              = "VERIFICATION FAILED|VERIFICATION SUCCESSFUL"
@@ -346,7 +348,24 @@ def run_kinduction_bmc(file_base: str, file_induction: str, timelimit: int=None,
 		if is_timeout(timelimit): return None
 		time.sleep(POLL_INTERVAL)
 
-def verify(input_file: str, timelimit: int=None, print_smt_time:bool=False):
+
+def add_witness_generation(input_file: str):
+	"""
+	Adds an
+	:param input_file:
+	:return:
+	"""
+	global VERIFIER_BASE_CALL, VERIFIER_INDUCTION_CALL
+	filename = os.path.basename(input_file).strip().replace(' ', '')
+	base_filename = f'{filename}_{VERIFIER_WITNESS_BASE_FILENAME}'
+	ind_filename = f'{filename}_{VERIFIER_WITNESS_INDUCTION_FILENAME}'
+	witness_base_arg = f'{VERIFIER_WITNESS_GEN_ARGUMENT.replace(VERIFIER_WITNESS_FILENAME_STRING, base_filename)}'
+	witness_ind_arg = f'{VERIFIER_WITNESS_GEN_ARGUMENT.replace(VERIFIER_WITNESS_FILENAME_STRING, ind_filename)}'
+	VERIFIER_BASE_CALL.append(witness_base_arg)
+	VERIFIER_INDUCTION_CALL.append(witness_ind_arg)
+
+
+def verify(input_file: str, timelimit: int=None, print_smt_time:bool=False, gen_witness: bool=False):
 	"""
 	The main entry point for the k-induction algorithm. Handles everything that concerns the k-induction approach, from
 	parsing, code transformation up to verifier execution and output.
@@ -359,6 +378,9 @@ def verify(input_file: str, timelimit: int=None, print_smt_time:bool=False):
 	print("Preparing input files for k-Induction...")
 	file_base_step      = prepare_base_step(input_file)
 	file_induction_step = prepare_induction_step(input_file)
+	if gen_witness:
+		print("Setting up configuration for generating witnesses.")
+		add_witness_generation(input_file)
 	print("Starting k-Induction processes...")
 	if VERIFIER_IS_INCREMENTAL:
 		result = run_kinduction_incremental_bmc(file_base_step, file_induction_step, timelimit, print_smt_time)
@@ -380,15 +402,19 @@ def read_config(config_file_name: str):
 	global VERIFIER_IS_INCREMENTAL, VERIFIER_BASE_CALL, VERIFIER_INDUCTION_CALL, VERIFIER_KINCREMENT_STRING, \
 		VERIFIER_FALSE_REGEX, VERIFIER_TRUE_REGEX, VERIFIER_K_REGEX, VERIFIER_SMT_TIME_REGEX_START, \
 		VERIFIER_SMT_TIME_REGEX_END, POLL_INTERVAL, VERIFIER_ASSUME_FUNCTION_NAME, VERIFIER_ERROR_FUNCTION_NAME, \
-		MAIN_FUNCTION_NAME, ASSERT_FUNCTION_NAME, VERIFIER_WITNESS_FILENAME_STRING, VERIFIER_WITNESS_GEN_ARGUMENT
+		MAIN_FUNCTION_NAME, ASSERT_FUNCTION_NAME, VERIFIER_WITNESS_FILENAME_STRING, VERIFIER_WITNESS_GEN_ARGUMENT, \
+		VERIFIER_WITNESS_BASE_FILENAME, VERIFIER_WITNESS_INDUCTION_FILENAME
 	with open(config_file_name) as config_file:
 		config = yaml.load(config_file)
 		VERIFIER_IS_INCREMENTAL       = config["verifier"].get("incremental", VERIFIER_IS_INCREMENTAL)
 		VERIFIER_BASE_CALL            = config["verifier"].get("base_call", VERIFIER_BASE_CALL).split()
 		VERIFIER_INDUCTION_CALL       = config["verifier"].get("induction_call", VERIFIER_INDUCTION_CALL).split()
 		VERIFIER_WITNESS_GEN_ARGUMENT = config["verifier"].get("witness_gen_argument", VERIFIER_WITNESS_GEN_ARGUMENT)
-		VERIFIER_KINCREMENT_STRING    = config["verifier"].get("k_increment_string", VERIFIER_KINCREMENT_STRING)
 		VERIFIER_WITNESS_FILENAME_STRING = config["verifier"].get("witness_filename_string", VERIFIER_WITNESS_FILENAME_STRING)
+		VERIFIER_WITNESS_BASE_FILENAME = config["verifier"].get("witness_base_filename", VERIFIER_WITNESS_BASE_FILENAME)
+		VERIFIER_WITNESS_INDUCTION_FILENAME = \
+			config["verifier"].get("witness_induction_filename", VERIFIER_WITNESS_INDUCTION_FILENAME)
+		VERIFIER_KINCREMENT_STRING    = config["verifier"].get("k_increment_string", VERIFIER_KINCREMENT_STRING)
 		VERIFIER_FALSE_REGEX          = config["verifier"]["output"].get("false_regex", VERIFIER_FALSE_REGEX)
 		VERIFIER_TRUE_REGEX           = config["verifier"]["output"].get("true_regex", VERIFIER_TRUE_REGEX)
 		VERIFIER_K_REGEX              = config["verifier"]["output"].get("k_regex", VERIFIER_K_REGEX)
@@ -427,11 +453,8 @@ def __main__():
 	# Reads config into global variables.
 	read_config(args.config)
 
-	if args.witness:
-		print("Witness")
-
 	# Runs the verification task.
-	# verify(args.input, args.timelimit, args.smt_time)
+	verify(args.input, args.timelimit, args.smt_time, args.witness)
 
 	exit(0)
 
