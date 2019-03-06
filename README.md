@@ -9,6 +9,8 @@ You will need `pycparser`, `pycparserext`, `pyyaml` and `psutil`. All packages a
 although it is recommended that a current version of `pycparserext` is installed from [source]
 (https://github.com/inducer/pycparserext), as the PyPI version is quite outdated.
 
+For dealing with generated witnesses, the package `lxml` is necessary as well.  
+
 You will also need a bounded model checker to your liking.
 
 ## Usage
