@@ -2,26 +2,25 @@
 Main entry file. Handles the general structure of the verification process, including process execution and result
 interpretation.
 """
+import argparse
 import fcntl
 import io
 import os
+import re
+import shutil
 import signal
 import subprocess
-import argparse
-import shutil
-import sys
 import tempfile
-import re
 import time
+
 import psutil
 import yaml
 
-from pycparserext.ext_c_parser import GnuCParser
-from pycparserext.ext_c_generator import GnuCGenerator
 from canalyzer import *
 from ctransformer import *
-
 # Default configuration. Real configuration is read from the user's configuration file.
+from witnessgml import extend_from_cbmc_to_cpa_format
+
 VERIFIER_IS_INCREMENTAL       = False
 VERIFIER_BASE_CALL            = "cbmc.sh --unwindset main.X:KINCREMENT --no-unwinding-assertions".split()
 VERIFIER_INDUCTION_CALL       = "cbmc.sh --unwindset main.X:KINCREMENT --no-unwinding-assertions".split()
@@ -141,7 +140,7 @@ def interprete_induction_step_output(output: str):
 	else:
 		return None
 
-def identify_k(output: str):
+def identify_k(output: str) -> int:
 	"""
 	Identifies the current iteration number given the verifier output.
 	:param output: A (partial) output of a verifier.
@@ -171,7 +170,7 @@ def identify_smt_time(output: str, only_last:bool=False):
 			print(e)
 	return time
 
-def is_timeout(timelimit: int):
+def is_timeout(timelimit: int) -> bool:
 	"""
 	Checks if the tool has run into a timeout, given the timelimit that was set by the user.
 	:param timelimit: The timelimit in seconds. Can be None.
@@ -307,8 +306,9 @@ def run_kinduction_bmc(file_base: str, file_induction: str, timelimit: int=None,
 	base_out_file      = None
 	induction_process  = None
 	induction_out_file = None
+	print(VERIFIER_BASE_CALL, VERIFIER_INDUCTION_CALL)
 	while True:
-		# Fetches output form the base process and checks if a counterexample could be given. If not, increases k.
+		# Fetches output from the base process and checks if a counterexample could be given. If not, increases k.
 		if base_process is None or base_process.poll() is not None:
 				if base_out_file:
 					base_out_file.seek(0)
@@ -325,7 +325,7 @@ def run_kinduction_bmc(file_base: str, file_induction: str, timelimit: int=None,
 					base_call     = insert_k_into_callstring(VERIFIER_BASE_CALL, base_step_k)
 					base_out_file = tempfile.TemporaryFile()
 					base_process  = subprocess.Popen(base_call + [file_base], stdout=base_out_file)
-		# Fetches output form the induction process and checks if a proof could be given. If not, increases k.
+		# Fetches output from the induction process and checks if a proof could be given. If not, increases k.
 		if induction_process is None or induction_process.poll() is not None:
 				if induction_out_file:
 					induction_out_file.seek(0)
@@ -333,7 +333,7 @@ def run_kinduction_bmc(file_base: str, file_induction: str, timelimit: int=None,
 				else:
 					induction_out = ""
 				if base_step_k >= induction_step_k and induction_out_file and \
-						interprete_induction_step_output(induction_out) == True:
+							interprete_induction_step_output(induction_out) is True:
 					return True
 				else:
 					induction_step_k += 1
@@ -363,6 +363,17 @@ def add_witness_generation(input_file: str):
 	witness_ind_arg = f'{VERIFIER_WITNESS_GEN_ARGUMENT.replace(VERIFIER_WITNESS_FILENAME_STRING, ind_filename)}'
 	VERIFIER_BASE_CALL.append(witness_base_arg)
 	VERIFIER_INDUCTION_CALL.append(witness_ind_arg)
+	print(base_filename, ind_filename)
+	return {base_filename, ind_filename}
+
+
+def extend_gml(base_filename: str, ind_filename: str, input_file: str):
+	if os.path.exists(base_filename):
+		print('Making base witness compatible with CPA Checker.')
+		extend_from_cbmc_to_cpa_format(base_filename, input_file)
+	if os.path.exists(ind_filename):
+		print('Making induction witness compatible with CPA Checker.')
+		extend_from_cbmc_to_cpa_format(ind_filename, input_file)
 
 
 def verify(input_file: str, timelimit: int=None, print_smt_time:bool=False, gen_witness: bool=False):
@@ -380,12 +391,17 @@ def verify(input_file: str, timelimit: int=None, print_smt_time:bool=False, gen_
 	file_induction_step = prepare_induction_step(input_file)
 	if gen_witness:
 		print("Setting up configuration for generating witnesses.")
-		add_witness_generation(input_file)
+		[base_filename, ind_filename] = add_witness_generation(input_file)
 	print("Starting k-Induction processes...")
 	if VERIFIER_IS_INCREMENTAL:
 		result = run_kinduction_incremental_bmc(file_base_step, file_induction_step, timelimit, print_smt_time)
 	else:
 		result = run_kinduction_bmc(file_base_step, file_induction_step, timelimit, print_smt_time)
+
+	if gen_witness and result is not None:
+		# Take care of incompatible GraphML representations of CBMC and CPAChecker
+		extend_gml(base_filename, ind_filename, input_file)
+
 	if result == True:
 		print("VERIFICATION SUCCESSFUL")
 	elif result == False:
