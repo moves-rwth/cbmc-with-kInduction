@@ -56,15 +56,13 @@ def write_back(graph, file):
 		f.write(s)
 
 
-def extend_from_cbmc_to_cpa_format(filename: str, input_file: str):
+def extend_from_cbmc_to_cpa_format(filename: str, input_file: str, result: bool):
 	time.sleep(30)
-	print(os.stat(filename))
 	parser = etree.XMLParser(remove_blank_text=True)
 	tree = etree.parse(filename, parser)
 	g = tree.find('{http://graphml.graphdrawing.org/xmlns}graph')
-	print(len(g.findall('{http://graphml.graphdrawing.org/xmlns}node')))
 
-	g.append(get_data_witness_type('correctness_witness'))
+	g.append(get_data_witness_type('correctness_witness' if result else 'violation_witness'))
 	g.append(get_data_specification('CHECK( init(main()), LTL(G ! call(__VERIFIER_error())) )'))
 	g.append(get_data_programhash(get_sha512_hash(input_file)))
 	g.append(get_data_architecture('32bit'))

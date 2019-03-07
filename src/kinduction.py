@@ -306,7 +306,6 @@ def run_kinduction_bmc(file_base: str, file_induction: str, timelimit: int=None,
 	base_out_file      = None
 	induction_process  = None
 	induction_out_file = None
-	print(VERIFIER_BASE_CALL, VERIFIER_INDUCTION_CALL)
 	while True:
 		# Fetches output from the base process and checks if a counterexample could be given. If not, increases k.
 		if base_process is None or base_process.poll() is not None:
@@ -363,17 +362,16 @@ def add_witness_generation(input_file: str):
 	witness_ind_arg = f'{VERIFIER_WITNESS_GEN_ARGUMENT.replace(VERIFIER_WITNESS_FILENAME_STRING, ind_filename)}'
 	VERIFIER_BASE_CALL.append(witness_base_arg)
 	VERIFIER_INDUCTION_CALL.append(witness_ind_arg)
-	print(base_filename, ind_filename)
 	return {base_filename, ind_filename}
 
 
-def extend_gml(base_filename: str, ind_filename: str, input_file: str):
+def extend_gml(base_filename: str, ind_filename: str, input_file: str, verif_result: bool):
 	if os.path.exists(base_filename):
 		print('Making base witness compatible with CPA Checker.')
-		extend_from_cbmc_to_cpa_format(base_filename, input_file)
+		extend_from_cbmc_to_cpa_format(base_filename, input_file, verif_result)
 	if os.path.exists(ind_filename):
 		print('Making induction witness compatible with CPA Checker.')
-		extend_from_cbmc_to_cpa_format(ind_filename, input_file)
+		extend_from_cbmc_to_cpa_format(ind_filename, input_file, verif_result)
 
 
 def verify(input_file: str, timelimit: int=None, print_smt_time:bool=False, gen_witness: bool=False):
@@ -400,7 +398,7 @@ def verify(input_file: str, timelimit: int=None, print_smt_time:bool=False, gen_
 
 	if gen_witness and result is not None:
 		# Take care of incompatible GraphML representations of CBMC and CPAChecker
-		extend_gml(base_filename, ind_filename, input_file)
+		extend_gml(base_filename, ind_filename, input_file, result)
 
 	if result == True:
 		print("VERIFICATION SUCCESSFUL")
