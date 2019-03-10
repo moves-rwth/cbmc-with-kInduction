@@ -21,6 +21,8 @@ from pycparserext.ext_c_generator import GnuCGenerator
 from canalyzer import *
 from ctransformer import *
 
+from modules.variablemoving.variablemoving import variable_analysis_from_file
+
 # Default configuration. Real configuration is read from the user's configuration file.
 VERIFIER_IS_INCREMENTAL       = False
 VERIFIER_BASE_CALL            = "cbmc.sh --unwindset main.X:KINCREMENT --no-unwinding-assertions".split()
@@ -344,16 +346,20 @@ def run_kinduction_bmc(file_base: str, file_induction: str, timelimit: int=None,
 		if is_timeout(timelimit): return None
 		time.sleep(POLL_INTERVAL)
 
-def verify(input_file: str, timelimit: int=None, print_smt_time:bool=False):
+def verify(input_file: str, timelimit: int=None, variable_moving:bool=False, print_smt_time:bool=False):
 	"""
 	The main entry point for the k-induction algorithm. Handles everything that concerns the k-induction approach, from
 	parsing, code transformation up to verifier execution and output.
 	:param input_file: A filename whose file contains the C code to run k-induction on.
 	:param timelimit: An optional limit on the CPU-time, in seconds.
+	:param variable_moving: Whether the variable moving analysis should be applied on the input.
 	:param print_smt_time: Whether to print out the time that was spent on SMT-solving.
 	:return: Either True, False or None (in case no definite answer could be given).
 	:rtype: False, True or None
 	"""
+	if variable_moving:
+		print("Applying variable moving analysis...")
+		input_file = variable_analysis_from_file(input_file)
 	print("Preparing input files for k-Induction...")
 	file_base_step      = prepare_base_step(input_file)
 	file_induction_step = prepare_induction_step(input_file)
@@ -409,6 +415,7 @@ def __main__():
 	parser.add_argument("input", type=str, help="The C input file to verify.")
 	parser.add_argument("-c", "--config", required=True, type=str, help="The verifier configuration file.")
 	parser.add_argument("-t", "--timelimit",type=int, help="The maximum CPU-time [s] for the verification.")
+	parser.add_argument("--variable-moving", action="store_true", help="Moves variables to the most local scope.")
 	parser.add_argument("--smt-time", action="store_true", help="Prints out the time that was spent on SMT-solving.")
 
 	args = parser.parse_args()
@@ -423,7 +430,7 @@ def __main__():
 	read_config(args.config)
 
 	# Runs the verification task.
-	verify(args.input, args.timelimit, args.smt_time)
+	verify(args.input, args.timelimit, args.variable_moving, args.smt_time)
 
 	exit(0)
 
