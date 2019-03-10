@@ -77,6 +77,11 @@ class AggregateDeanonymizer(c_ast.NodeVisitor):
 	def __init__(self, unavailable_identifiers: set):
 		self.unavailable_identifiers = unavailable_identifiers
 
+	def generic_visit(self, node):
+		if type(node) != FuncDeclExt and type(node) != TypeDeclExt:
+			for c in node:
+				self.visit(c)
+
 	def visit_Struct(self, node):
 		if node.name == None:
 			node.name = self.__generate_new_typename()
@@ -95,6 +100,11 @@ class AggregateDeanonymizer(c_ast.NodeVisitor):
 class IdentifierCollector(c_ast.NodeVisitor):
 	def __init__(self):
 		self.identifiers = set()
+
+	def generic_visit(self, node):
+		if type(node) != FuncDeclExt and type(node) != TypeDeclExt:
+			for c in node:
+				self.visit(c)
 
 	def visit_TypeDecl(self, node):
 		if (type(node.type) == c_ast.Struct or type(node.type) == c_ast.Union) and node.type.name is not None:
@@ -203,14 +213,15 @@ class CTransformer:
 			# CASE STRUCT
 			if type(declaration.type.type) == c_ast.Struct:
 				# Iterates over every struct member and creates a havoc block for this. Useful for nested structs.
-				for member in declaration.type.type.decls:
-					if parent is None:
-						new_parent = c_ast.StructRef(c_ast.ID(declaration.name), ".", None)
-					else:
-						new_parent = c_ast.StructRef(parent, ".", None)
-					rec_svcomp_havoc_funcs, rec_havoc_block = self.create_havoc_assignment(member, new_parent)
-					body_items.append(rec_havoc_block)
-					svcomp_havoc_functions = svcomp_havoc_functions.union(rec_svcomp_havoc_funcs)
+				if declaration.type.type.decls:
+					for member in declaration.type.type.decls:
+						if parent is None:
+							new_parent = c_ast.StructRef(c_ast.ID(declaration.name), ".", None)
+						else:
+							new_parent = c_ast.StructRef(parent, ".", None)
+						rec_svcomp_havoc_funcs, rec_havoc_block = self.create_havoc_assignment(member, new_parent)
+						body_items.append(rec_havoc_block)
+						svcomp_havoc_functions = svcomp_havoc_functions.union(rec_svcomp_havoc_funcs)
 			# CASE UNION
 			elif type(declaration.type.type) == c_ast.Union and len(declaration.type.type.decls) > 0:
 				# For a union, we just havoc the very first member.

@@ -266,7 +266,7 @@ def main():
 		output = open(sys.argv[2], "w")
 	else:
 		output = sys.stdout
-	print(variable_analysis_from_file(sys.argv[1], output))
+	variable_analysis_from_file(sys.argv[1], output)
 
 if __name__ == '__main__':
 	main()
