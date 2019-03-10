@@ -388,7 +388,8 @@ class CAnalyzer:
 						declaration.type = copy.deepcopy(typedef.type.type)
 				AggregateAnonymizer().visit(declaration.type)
 			if type(declaration.type) == c_ast.Struct or type(declaration.type) == c_ast.Union:
-				for member in declaration.type.decls:
-					self.resolve_typedefs(member.type, typedefs)
+				if declaration.type.decls:
+					for member in declaration.type.decls:
+						self.resolve_typedefs(member.type, typedefs)
 		elif type(declaration) == c_ast.ArrayDecl or type(declaration) == c_ast.PtrDecl:
 			self.resolve_typedefs(declaration.type, typedefs)

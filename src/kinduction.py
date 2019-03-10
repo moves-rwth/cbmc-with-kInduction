@@ -16,12 +16,15 @@ import time
 import psutil
 import yaml
 
+from argparse import Namespace
+
 from pycparserext.ext_c_parser import GnuCParser
 from pycparserext.ext_c_generator import GnuCGenerator
 from canalyzer import *
 from ctransformer import *
 
 from modules.variablemoving.variablemoving import variable_analysis_from_file
+from modules.slicing.slicing import static_slicing_from_file
 
 # Default configuration. Real configuration is read from the user's configuration file.
 VERIFIER_IS_INCREMENTAL       = False
@@ -72,6 +75,8 @@ def prepare_induction_step(input_file: str):
 		ast = parser.parse(file.read())
 	analyzer    = CAnalyzer(ast)
 	transformer = CTransformer(ast)
+	# De-anonymizes aggregates as a first step, as this is a requirement for later analysis.
+	transformer.deanonymize_aggregates()
 	# Identifies main components of the code.
 	try:
 		main_function      = analyzer.identify_function(MAIN_FUNCTION_NAME)
@@ -346,13 +351,18 @@ def run_kinduction_bmc(file_base: str, file_induction: str, timelimit: int=None,
 		if is_timeout(timelimit): return None
 		time.sleep(POLL_INTERVAL)
 
-def verify(input_file: str, timelimit: int=None, variable_moving:bool=False, print_smt_time:bool=False):
+def verify(input_file: str,
+		   timelimit: int=None,
+		   variable_moving:bool=False,
+		   slicing:bool=False,
+		   print_smt_time:bool=False):
 	"""
 	The main entry point for the k-induction algorithm. Handles everything that concerns the k-induction approach, from
 	parsing, code transformation up to verifier execution and output.
 	:param input_file: A filename whose file contains the C code to run k-induction on.
 	:param timelimit: An optional limit on the CPU-time, in seconds.
 	:param variable_moving: Whether the variable moving analysis should be applied on the input.
+	:param slicing: Whether static slicing should be applied on the input.
 	:param print_smt_time: Whether to print out the time that was spent on SMT-solving.
 	:return: Either True, False or None (in case no definite answer could be given).
 	:rtype: False, True or None
@@ -360,6 +370,9 @@ def verify(input_file: str, timelimit: int=None, variable_moving:bool=False, pri
 	if variable_moving:
 		print("Applying variable moving analysis...")
 		input_file = variable_analysis_from_file(input_file)
+	if slicing:
+		print("Applying static slicing...")
+		input_file = static_slicing_from_file(input_file)
 	print("Preparing input files for k-Induction...")
 	file_base_step      = prepare_base_step(input_file)
 	file_induction_step = prepare_induction_step(input_file)
@@ -404,18 +417,33 @@ def read_config(config_file_name: str):
 		MAIN_FUNCTION_NAME            = config["input"].get("main_function", MAIN_FUNCTION_NAME)
 		ASSERT_FUNCTION_NAME          = config["input"].get("assert_function", ASSERT_FUNCTION_NAME)
 
+def check_validity(args: Namespace):
+	"""
+	Checks the validity of the given argument configuration.
+	:param args: The arguments that the user passed to the program.
+	:return: True iff the arguments are valid, i.e. are not inconsistent and are applicable.
+	:rtype: Boolean
+	"""
+	# TODO
+	return args
+
 def __main__():
 	DESCRIPTION = "Runs k-induction on a given C-file by utilizing an (incremental) bounded model checker. " \
 				  "Currently, some constraints are imposed on the C code: It has to contain the entry function named " \
 				  "\"main\", inside which the loop over whom the k-Induction shall be run is located. The " \
 				  "verification task shall be given by a __VERIFIER_error() call and has to be guarded by one if " \
 				  "statement that contains the verification condition. The external verifier can be configured via " \
-				  "the config file verifier.config."
+				  "the config file verifier.config.\n" \
+				  "Two static optimization approaches can be optionally enabled. For variable moving, ctags is " \
+				  "required to be present in the PATH. For slicing, framac is required to be present in the PATH."
 	parser = argparse.ArgumentParser(description=DESCRIPTION)
 	parser.add_argument("input", type=str, help="The C input file to verify.")
 	parser.add_argument("-c", "--config", required=True, type=str, help="The verifier configuration file.")
 	parser.add_argument("-t", "--timelimit",type=int, help="The maximum CPU-time [s] for the verification.")
-	parser.add_argument("--variable-moving", action="store_true", help="Moves variables to the most local scope.")
+	parser.add_argument("--variable-moving", action="store_true", help="Moves variables to the most local scope prior "
+																	   "to verification.")
+	parser.add_argument("--slicing", action="store_true", help="Applies static slicing for the reachability of the "
+															   "error location prior to verification.")
 	parser.add_argument("--smt-time", action="store_true", help="Prints out the time that was spent on SMT-solving.")
 
 	args = parser.parse_args()
@@ -429,8 +457,12 @@ def __main__():
 	# Reads config into global variables.
 	read_config(args.config)
 
+	# Checks the given parameters for validity.
+	if not check_validity(args):
+		exit(1)
+
 	# Runs the verification task.
-	verify(args.input, args.timelimit, args.variable_moving, args.smt_time)
+	verify(args.input, args.timelimit, args.variable_moving, args.slicing, args.smt_time)
 
 	exit(0)
 
