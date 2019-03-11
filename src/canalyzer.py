@@ -151,10 +151,9 @@ class PropertyStatementFinder(c_ast.NodeVisitor):
 		elif node.name.name == ASSERT_FUNCTION_NAME:
 			self.statement = node
 
-class TypedefCollector(c_ast.NodeVisitor):
+class TypedefAndStructsCollector(c_ast.NodeVisitor):
 	"""
-	Collects all typedefs in a list of tuples. The first element of each tuple contains the left-hand side of the
-	typedef (i.e. the overlaid types) as a list of strings, and the second element contains the new typename as a str.
+	Collects all typedefs and structs.
 	"""
 	def __init__(self):
 		self.typedefs = []
@@ -166,6 +165,11 @@ class TypedefCollector(c_ast.NodeVisitor):
 
 	def visit_Typedef(self, node):
 		self.typedefs.append(node)
+
+	def visit_Decl(self, node):
+		# Struct tags can also be used as a type elsewhere.
+		if hasattr(node, "type") and type(node.type) is c_ast.Struct:
+			self.typedefs.append(node.type)
 
 class DeclarationCollector(c_ast.NodeVisitor):
 	"""
@@ -184,7 +188,7 @@ class DeclarationCollector(c_ast.NodeVisitor):
 
 	def visit_Decl(self, node):
 		# Searches for the scope of the variable - It is either block, function parameter, or global or an aggregate.
-		if type(node.type) != c_ast.FuncDecl and type(node.type) != FuncDeclExt:
+		if type(node.type) != c_ast.FuncDecl and type(node.type) != FuncDeclExt and node.name:
 			scope = None
 			for parent in reversed(self.parents):
 				if type(parent) == c_ast.FileAST\
@@ -251,7 +255,10 @@ class CAnalyzer:
 			# Declaration can be valid in either the function parameters, the function body or in the global scope.
 			if scope == function or scope == function.body or scope == self.ast:
 				declarations.append(declaration)
-				self.resolve_typedefs(declaration.type, typedefs)
+				resolved = True
+				# Fixed point iteration until all typedefs are resolved.
+				while resolved:
+					resolved = self.resolve_typedefs(declaration.type, typedefs)
 		return declarations
 
 	def is_variable_of_declaration_modified(self, declaration: c_ast.Decl, block: c_ast.Compound):
@@ -362,7 +369,7 @@ class CAnalyzer:
 		:return: A list of tuples containing the typedefs.
 		:rtype: list
 		"""
-		collector = TypedefCollector()
+		collector = TypedefAndStructsCollector()
 		collector.visit(self.ast)
 		return collector.typedefs
 
@@ -373,23 +380,34 @@ class CAnalyzer:
 		:param declaration: The declaration in which to resolve typedefs in. Type is one of c_ast.TypeDecl,
 			c_ast.PtrDecl or c_ast.ArrayDecl.
 		:param typedefs: A list of typedefs to check against.
+		:return: True iff a typedef was resolved.
+		:rtype: Boolean
 		"""
 		# Three cases to be distinguished: Type, array or pointer declaration. For arrays, pointers, the type
 		# resolving is just applied recursively. For a type declaration, all typedefs are first resolved, and in case we
 		# have a aggregate type (struct or union), the resolving is again applied recursively to their members.
 		if type(declaration) == c_ast.TypeDecl:
+			resolved = False
 			for typedef in typedefs:
-				if type(declaration.type) == c_ast.Struct or type(declaration.type) == c_ast.Union:
+				if type(typedef) is c_ast.Typedef:
+					if type(declaration.type) == c_ast.Struct or type(declaration.type) == c_ast.Union:
+						if typedef.name == declaration.type.name:
+							declaration.type = copy.deepcopy(typedef.type.type)
+							declaration.quals = copy.deepcopy(typedef.quals)
+							resolved = True
+					elif type(declaration.type) == c_ast.IdentifierType:
+						if typedef.name in declaration.type.names:
+							declaration.type = copy.deepcopy(typedef.type.type)
+							resolved = True
+					# AggregateAnonymizer().visit(declaration.type)
+				elif type(typedef) is c_ast.Struct and type(declaration.type) == c_ast.Struct:
 					if typedef.name == declaration.type.name:
-						declaration.type = copy.deepcopy(typedef.type.type)
-						declaration.quals = copy.deepcopy(typedef.quals)
-				elif type(declaration.type) == c_ast.IdentifierType:
-					if typedef.name in declaration.type.names:
-						declaration.type = copy.deepcopy(typedef.type.type)
-				AggregateAnonymizer().visit(declaration.type)
+						declaration.type = copy.deepcopy(typedef)
 			if type(declaration.type) == c_ast.Struct or type(declaration.type) == c_ast.Union:
 				if declaration.type.decls:
 					for member in declaration.type.decls:
-						self.resolve_typedefs(member.type, typedefs)
+						resolved_member = self.resolve_typedefs(member.type, typedefs)
+						if not resolved: resolved = resolved_member
+			return resolved
 		elif type(declaration) == c_ast.ArrayDecl or type(declaration) == c_ast.PtrDecl:
-			self.resolve_typedefs(declaration.type, typedefs)
+			return self.resolve_typedefs(declaration.type, typedefs)

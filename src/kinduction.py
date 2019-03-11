@@ -76,7 +76,7 @@ def prepare_induction_step(input_file: str):
 	analyzer    = CAnalyzer(ast)
 	transformer = CTransformer(ast)
 	# De-anonymizes aggregates as a first step, as this is a requirement for later analysis.
-	transformer.deanonymize_aggregates()
+	# transformer.deanonymize_aggregates()
 	# Identifies main components of the code.
 	try:
 		main_function      = analyzer.identify_function(MAIN_FUNCTION_NAME)
