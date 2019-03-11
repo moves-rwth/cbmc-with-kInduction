@@ -275,7 +275,6 @@ class CAnalyzer:
 						first = False
 			# Cleaning up the resolving process: Removing tag-only struct types (as they are resolved now).
 			for typedef in typedefs:
-				print(typedef)
 				if type(typedef) is c_ast.Struct:
 					typedef.name = None
 			self.declarations = declarations
