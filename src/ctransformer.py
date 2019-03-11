@@ -91,6 +91,7 @@ class AggregateDeanonymizer(c_ast.NodeVisitor):
 			node.name = self.__generate_new_typename()
 
 	def __generate_new_typename(self):
+		typename = ""
 		for i in range(5, sys.maxsize):
 			typename = "".join(random.choices(string.ascii_letters, k=i))
 			if typename not in self.unavailable_identifiers:
