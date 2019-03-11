@@ -188,7 +188,8 @@ class DeclarationCollector(c_ast.NodeVisitor):
 
 	def visit_Decl(self, node):
 		# Searches for the scope of the variable - It is either block, function parameter, or global or an aggregate.
-		if type(node.type) != c_ast.FuncDecl and type(node.type) != FuncDeclExt and node.name:
+		if type(node.type) != c_ast.FuncDecl and type(node.type) != FuncDeclExt and node.name and len(self.parents) > 0\
+				and type(self.parents[-1]) is not c_ast.Typedef:
 			scope = None
 			for parent in reversed(self.parents):
 				if type(parent) == c_ast.FileAST\
@@ -220,15 +221,22 @@ class LoopFinder(c_ast.NodeVisitor):
 	def visit_For(self, node):
 		self.loops.append(node)
 
-class AggregateAnonymizer(c_ast.NodeVisitor):
+class AggregateRemover(c_ast.NodeVisitor):
 	"""
-	Visits all aggregates and removes their names.
+	Visits all aggregates in compounds and ASTs and removes matching ones.
 	"""
-	def visit_Struct(self, node):
-		node.name = None
+	def __init__(self, aggregate):
+		self.aggregate = aggregate
 
-	def visit_Union(self, node):
-		node.name = None
+	def visit_Compound(self, node):
+		for item in node.block_items:
+			if hasattr(item, "type") and item.type == self.aggregate:
+				node.block_items.remove(item)
+
+	def visit_FileAST(self, node):
+		for item in node.ext:
+			if hasattr(item, "type") and item.type == self.aggregate:
+				node.ext.remove(item)
 
 ########################################################################################################################
 # Analyzer                                                                                                             #
@@ -238,6 +246,7 @@ class CAnalyzer:
 	def __init__(self, ast: c_ast.FileAST, main_function_name: str="main"):
 		self.ast = ast
 		self.main_function_name = main_function_name
+		self.declarations = None
 
 	def identify_declarations(self, function: c_ast.FuncDef):
 		"""
@@ -247,19 +256,29 @@ class CAnalyzer:
 		:return: A list of declarations, one for each variable.
 		:rtype: list of c_ast.Decl
 		"""
-		declarations = []
-		typedefs = self.identify_typedefs()
-		collector = DeclarationCollector()
-		collector.visit(self.ast)
-		for declaration, scope in collector.declarations:
-			# Declaration can be valid in either the function parameters, the function body or in the global scope.
-			if scope == function or scope == function.body or scope == self.ast:
-				declarations.append(declaration)
-				resolved = True
-				# Fixed point iteration until all typedefs are resolved.
-				while resolved:
-					resolved = self.resolve_typedefs(declaration.type, typedefs)
-		return declarations
+		if not self.declarations:
+			declarations = []
+			generator = GnuCGenerator()
+			typedefs = self.identify_typedefs()
+			collector = DeclarationCollector()
+			collector.visit(self.ast)
+			for declaration, scope in collector.declarations:
+				# Declaration can be valid in either the function parameters, the function body or in the global scope.
+				if scope == function or scope == function.body or scope == self.ast:
+					declarations.append(declaration)
+					# Fixed point iteration until all typedefs are resolved.
+					old_declaration = copy.deepcopy(declaration)
+					first = True
+					while str(generator.visit(old_declaration)) != str(generator.visit(declaration)) or first:
+						old_declaration = copy.deepcopy(declaration)
+						self.resolve_typedefs(declaration.type, typedefs)
+						first = False
+			# Cleaning up the resolving process: Removing tag-only struct types (as they are resolved now).
+			for typedef in typedefs:
+				if type(typedef) is c_ast.Struct:
+					AggregateRemover(typedef).visit(self.ast)
+			self.declarations = declarations
+		return self.declarations
 
 	def is_variable_of_declaration_modified(self, declaration: c_ast.Decl, block: c_ast.Compound):
 		"""
@@ -380,34 +399,32 @@ class CAnalyzer:
 		:param declaration: The declaration in which to resolve typedefs in. Type is one of c_ast.TypeDecl,
 			c_ast.PtrDecl or c_ast.ArrayDecl.
 		:param typedefs: A list of typedefs to check against.
-		:return: True iff a typedef was resolved.
-		:rtype: Boolean
 		"""
 		# Three cases to be distinguished: Type, array or pointer declaration. For arrays, pointers, the type
 		# resolving is just applied recursively. For a type declaration, all typedefs are first resolved, and in case we
 		# have a aggregate type (struct or union), the resolving is again applied recursively to their members.
+		# Keeps track of non-resolved typedefs for recursive application of this function. We do not want already
+		# resolved typedefs to be re-applied again.
+		unresolved_typedes = typedefs
 		if type(declaration) == c_ast.TypeDecl:
-			resolved = False
 			for typedef in typedefs:
 				if type(typedef) is c_ast.Typedef:
 					if type(declaration.type) == c_ast.Struct or type(declaration.type) == c_ast.Union:
 						if typedef.name == declaration.type.name:
 							declaration.type = copy.deepcopy(typedef.type.type)
 							declaration.quals = copy.deepcopy(typedef.quals)
-							resolved = True
+							unresolved_typedes.remove(typedef)
 					elif type(declaration.type) == c_ast.IdentifierType:
 						if typedef.name in declaration.type.names:
 							declaration.type = copy.deepcopy(typedef.type.type)
-							resolved = True
-					# AggregateAnonymizer().visit(declaration.type)
+							unresolved_typedes.remove(typedef)
 				elif type(typedef) is c_ast.Struct and type(declaration.type) == c_ast.Struct:
 					if typedef.name == declaration.type.name:
 						declaration.type = copy.deepcopy(typedef)
+						unresolved_typedes.remove(typedef)
 			if type(declaration.type) == c_ast.Struct or type(declaration.type) == c_ast.Union:
 				if declaration.type.decls:
 					for member in declaration.type.decls:
-						resolved_member = self.resolve_typedefs(member.type, typedefs)
-						if not resolved: resolved = resolved_member
-			return resolved
+						self.resolve_typedefs(member.type, typedefs)
 		elif type(declaration) == c_ast.ArrayDecl or type(declaration) == c_ast.PtrDecl:
 			return self.resolve_typedefs(declaration.type, typedefs)

@@ -149,6 +149,16 @@ class DeclarationReplacer(c_ast.NodeVisitor):
 		if node.name == self.declaration.name:
 			node.init = c_ast.Constant("int", str(self.new_value))
 
+class SliceFuncCallUpdater(c_ast.NodeVisitor):
+	"""
+	Searches for any function calls, and append "_slice_1" if they do not contain this string already. This needs to be
+	done for Frama-C slicing, as it changes the function names.
+	Note: This may not work on every possible slicing outcome, but should suffice for most of the cases.
+	"""
+	def visit_FuncCall(self, node):
+		if type(node.name) is c_ast.ID and (len(node.name.name) < 9 or node.name.name[-8] != "_slice_1"):
+			node.name.name = node.name.name + "_slice_1"
+
 ########################################################################################################################
 # Transformer                                                                                                          #
 ########################################################################################################################
@@ -432,6 +442,23 @@ class CTransformer:
 		:param expression: The new expression.
 		"""
 		PropertyReplacer(expression).visit(self.ast)
+
+	def add_property(self, property: c_ast.ExprList, loop: c_ast.DoWhile or c_ast.While or c_ast.For, slice: bool=True):
+		"""
+		Adds the given expression to the end of the given loop. Note that by doing this, any previous property becomes
+		unusable for our k-induction process.
+		:param expression: The expression to be added.
+		:param loop: The loop to add the property to.
+		:param slice: Whether the code was sliced by Frama-C or not.
+		"""
+		if hasattr(loop, "stmt") and type(loop.stmt) is c_ast.Compound:
+			if slice:
+				SliceFuncCallUpdater().visit(property)
+			property = self.join_expression_list("&&", property)
+			property_check = c_ast.If(cond=property,
+									  iftrue=c_ast.Compound([c_ast.FuncCall(c_ast.ID("__VERIFIER_error"), None)]),
+									  iffalse=None)
+			loop.stmt.block_items.append(property_check)
 
 	def replace_initial_value(self, declaration: str, scope: c_ast.Node, new_value: int):
 		"""
