@@ -280,11 +280,10 @@ class CAnalyzer:
 							inner_first = False
 						first = False
 			# Cleaning up the resolving process: Removing tag-only struct types (as they are resolved now).
-			# TODO we are not allowed to delete the name here! It may be referenced somewhere else where it is needed.
-			# If they are not deleted, we have redefinitions - How to solve?
-			#for typedef in typedefs:
-			#	if type(typedef) is c_ast.Struct:
-			#		typedef.name = None
+			# Otherwise structs are declared twice, which is invalid C.
+			for typedef in typedefs:
+				if type(typedef) is c_ast.Struct:
+					AggregateRemover(typedef).visit(self.ast)
 			self.declarations = declarations
 		return self.declarations
 
