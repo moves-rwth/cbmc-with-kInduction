@@ -275,8 +275,9 @@ class CAnalyzer:
 						first = False
 			# Cleaning up the resolving process: Removing tag-only struct types (as they are resolved now).
 			for typedef in typedefs:
+				print(typedef)
 				if type(typedef) is c_ast.Struct:
-					AggregateRemover(typedef).visit(self.ast)
+					typedef.name = None
 			self.declarations = declarations
 		return self.declarations
 
@@ -405,7 +406,7 @@ class CAnalyzer:
 		# have a aggregate type (struct or union), the resolving is again applied recursively to their members.
 		# Keeps track of non-resolved typedefs for recursive application of this function. We do not want already
 		# resolved typedefs to be re-applied again.
-		unresolved_typedes = typedefs
+		unresolved_typedefs = copy.copy(typedefs)
 		if type(declaration) == c_ast.TypeDecl:
 			for typedef in typedefs:
 				if type(typedef) is c_ast.Typedef:
@@ -413,15 +414,13 @@ class CAnalyzer:
 						if typedef.name == declaration.type.name:
 							declaration.type = copy.deepcopy(typedef.type.type)
 							declaration.quals = copy.deepcopy(typedef.quals)
-							unresolved_typedes.remove(typedef)
 					elif type(declaration.type) == c_ast.IdentifierType:
 						if typedef.name in declaration.type.names:
 							declaration.type = copy.deepcopy(typedef.type.type)
-							unresolved_typedes.remove(typedef)
 				elif type(typedef) is c_ast.Struct and type(declaration.type) == c_ast.Struct:
 					if typedef.name == declaration.type.name:
 						declaration.type = copy.deepcopy(typedef)
-						unresolved_typedes.remove(typedef)
+						unresolved_typedefs.remove(typedef)
 			if type(declaration.type) == c_ast.Struct or type(declaration.type) == c_ast.Union:
 				if declaration.type.decls:
 					for member in declaration.type.decls:
