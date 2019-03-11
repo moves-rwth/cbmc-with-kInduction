@@ -156,7 +156,7 @@ class TypedefAndStructsCollector(c_ast.NodeVisitor):
 	Collects all typedefs and structs.
 	"""
 	def __init__(self):
-		self.typedefs = []
+		self.typedefs = set()
 
 	def generic_visit(self, node):
 		if type(node) != FuncDeclExt and type(node) != TypeDeclExt:
@@ -164,12 +164,12 @@ class TypedefAndStructsCollector(c_ast.NodeVisitor):
 				self.visit(c)
 
 	def visit_Typedef(self, node):
-		self.typedefs.append(node)
+		self.typedefs.add(node)
 
 	def visit_Decl(self, node):
 		# Struct tags can also be used as a type elsewhere.
 		if hasattr(node, "type") and type(node.type) is c_ast.Struct:
-			self.typedefs.append(node.type)
+			self.typedefs.add(node.type)
 
 class DeclarationCollector(c_ast.NodeVisitor):
 	"""
@@ -271,12 +271,20 @@ class CAnalyzer:
 					first = True
 					while str(generator.visit(old_declaration)) != str(generator.visit(declaration)) or first:
 						old_declaration = copy.deepcopy(declaration)
-						self.resolve_typedefs(declaration.type, typedefs)
+						applied_typedefs = set()
+						prev_applied_typedefs = typedefs
+						inner_first = True
+						while (applied_typedefs != prev_applied_typedefs and len(applied_typedefs) > 0) or inner_first:
+							prev_applied_typedefs = applied_typedefs
+							applied_typedefs = self.resolve_typedefs(declaration.type, typedefs - applied_typedefs)
+							inner_first = False
 						first = False
 			# Cleaning up the resolving process: Removing tag-only struct types (as they are resolved now).
-			for typedef in typedefs:
-				if type(typedef) is c_ast.Struct:
-					typedef.name = None
+			# TODO we are not allowed to delete the name here! It may be referenced somewhere else where it is needed.
+			# If they are not deleted, we have redefinitions - How to solve?
+			#for typedef in typedefs:
+			#	if type(typedef) is c_ast.Struct:
+			#		typedef.name = None
 			self.declarations = declarations
 		return self.declarations
 
@@ -382,30 +390,28 @@ class CAnalyzer:
 
 	def identify_typedefs(self):
 		"""
-		Searches for all typedefs. Returns the typedefs as a list of tuples, where the left hand side contains the
-		original C types as a list of strings and the right hand side the typedef'd alias as a string.
-		:param ast: The AST to find the typedef's in.
-		:return: A list of tuples containing the typedefs.
-		:rtype: list
+		Searches for all typedefs and tagged structs.
+		:return: A set of the typedefs and structs.
+		:rtype: set of c_ast.Typedef or c_ast.Struct
 		"""
 		collector = TypedefAndStructsCollector()
 		collector.visit(self.ast)
 		return collector.typedefs
 
-	def resolve_typedefs(self, declaration: c_ast.Node, typedefs: list):
+	def resolve_typedefs(self, declaration: c_ast.Node, typedefs: set):
 		"""
 		Resolves any typedefs present in the given declaration for the given typedef list. Works in-place on the AST and
 		applies itself recursively until no more typedefs are found.
 		:param declaration: The declaration in which to resolve typedefs in. Type is one of c_ast.TypeDecl,
 			c_ast.PtrDecl or c_ast.ArrayDecl.
-		:param typedefs: A list of typedefs to check against.
+		:param typedefs: A set of typedefs to check against.
 		"""
 		# Three cases to be distinguished: Type, array or pointer declaration. For arrays, pointers, the type
 		# resolving is just applied recursively. For a type declaration, all typedefs are first resolved, and in case we
 		# have a aggregate type (struct or union), the resolving is again applied recursively to their members.
 		# Keeps track of non-resolved typedefs for recursive application of this function. We do not want already
 		# resolved typedefs to be re-applied again.
-		unresolved_typedefs = copy.copy(typedefs)
+		applied_typedefs = set()
 		if type(declaration) == c_ast.TypeDecl:
 			for typedef in typedefs:
 				if type(typedef) is c_ast.Typedef:
@@ -413,16 +419,19 @@ class CAnalyzer:
 						if typedef.name == declaration.type.name:
 							declaration.type = copy.deepcopy(typedef.type.type)
 							declaration.quals = copy.deepcopy(typedef.quals)
+							applied_typedefs.add(typedef)
 					elif type(declaration.type) == c_ast.IdentifierType:
 						if typedef.name in declaration.type.names:
 							declaration.type = copy.deepcopy(typedef.type.type)
+							applied_typedefs.add(typedef)
 				elif type(typedef) is c_ast.Struct and type(declaration.type) == c_ast.Struct:
 					if typedef.name == declaration.type.name:
 						declaration.type = copy.deepcopy(typedef)
-						unresolved_typedefs.remove(typedef)
+						applied_typedefs.add(typedef)
 			if type(declaration.type) == c_ast.Struct or type(declaration.type) == c_ast.Union:
 				if declaration.type.decls:
 					for member in declaration.type.decls:
 						self.resolve_typedefs(member.type, typedefs)
 		elif type(declaration) == c_ast.ArrayDecl or type(declaration) == c_ast.PtrDecl:
-			return self.resolve_typedefs(declaration.type, typedefs)
+			self.resolve_typedefs(declaration.type, typedefs)
+		return applied_typedefs
