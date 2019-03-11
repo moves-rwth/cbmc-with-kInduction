@@ -61,12 +61,13 @@ def prepare_base_step(input_file: str):
 	shutil.copy(input_file, output_file.name)
 	return output_file.name
 
-def prepare_induction_step(input_file: str):
+def prepare_induction_step(input_file: str, original_input_file: str=None):
 	"""
 	Prepares the input C file for the execution of the induction step. It parses the code, havocs the main loop
 	variables and adds the property assumption to the beginning of the loop body. When finished, the C code is written
 	to a temporary working file which is then returned.
 	:param input_file: The input C file location to prepare.
+	:param input_file: The input C file location of the original input code, in case analyses were previously applied.
 	:return: The location of the prepared C file for the induction step.
 	:rtype: str
 	"""
@@ -79,10 +80,15 @@ def prepare_induction_step(input_file: str):
 	# transformer.deanonymize_aggregates()
 	# Identifies main components of the code.
 	try:
-		main_function      = analyzer.identify_function(MAIN_FUNCTION_NAME)
-		main_loop          = analyzer.identify_main_loop()
-		declarations       = analyzer.identify_declarations_of_modified_variables(main_loop.stmt, main_function)
-		property           = analyzer.identify_property()
+		main_function = analyzer.identify_function(MAIN_FUNCTION_NAME)
+		main_loop     = analyzer.identify_main_loop()
+		declarations  = analyzer.identify_declarations_of_modified_variables(main_loop.stmt, main_function)
+		if original_input_file and input_file != original_input_file:
+			with open(original_input_file) as original_file:
+				# In case we sliced the input, we want to re-add the original property first, as Frama-C scrambles the
+				# if statement in such a way that it becomes unrecognizable for our property identification process.
+				transformer.add_property(CAnalyzer(parser.parse(original_file.read())).identify_property(), main_loop)
+		property = analyzer.identify_property()
 	except (NoSuchFunctionException,
 			NoMainLoopException,
 			MultipleMainLoopsException,
@@ -367,6 +373,10 @@ def verify(input_file: str,
 	:return: Either True, False or None (in case no definite answer could be given).
 	:rtype: False, True or None
 	"""
+	if slicing:
+		original_input_file = input_file
+	else:
+		original_input_file = None
 	if variable_moving:
 		print("Applying variable moving analysis...")
 		input_file = variable_analysis_from_file(input_file)
@@ -375,7 +385,7 @@ def verify(input_file: str,
 		input_file = static_slicing_from_file(input_file)
 	print("Preparing input files for k-Induction...")
 	file_base_step      = prepare_base_step(input_file)
-	file_induction_step = prepare_induction_step(input_file)
+	file_induction_step = prepare_induction_step(input_file, original_input_file)
 	print("Starting k-Induction processes...")
 	if VERIFIER_IS_INCREMENTAL:
 		result = run_kinduction_incremental_bmc(file_base_step, file_induction_step, timelimit, print_smt_time)
