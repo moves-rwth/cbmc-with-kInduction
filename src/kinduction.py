@@ -16,6 +16,8 @@ import time
 import psutil
 import yaml
 
+from argparse import Namespace
+
 from pycparserext.ext_c_parser import GnuCParser
 from pycparserext.ext_c_generator import GnuCGenerator
 from canalyzer import *
