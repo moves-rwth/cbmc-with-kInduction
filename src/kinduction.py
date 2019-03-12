@@ -363,39 +363,17 @@ def run_kinduction_bmc(file_base: str, file_induction: str, timelimit: int=None,
 		if is_timeout(timelimit): return None
 		time.sleep(POLL_INTERVAL)
 
-def add_witness_generation(input_file: str):
+def add_witness_generation(input_file: str, witness_location: str):
 	"""
 	TODO
 	:param input_file:
-	:return:
-	:rtype:
+	:param witness_location:
 	"""
 	global VERIFIER_BASE_CALL, VERIFIER_INDUCTION_CALL
-	filename = os.path.basename(input_file).strip().replace(' ', '')
-	base_filename = f'{filename}_{VERIFIER_WITNESS_BASE_FILENAME}'
-	ind_filename = f'{filename}_{VERIFIER_WITNESS_INDUCTION_FILENAME}'
-	witness_base_arg = f'{VERIFIER_WITNESS_GEN_ARGUMENT.replace(VERIFIER_WITNESS_FILENAME_STRING, base_filename)}'
-	witness_ind_arg = f'{VERIFIER_WITNESS_GEN_ARGUMENT.replace(VERIFIER_WITNESS_FILENAME_STRING, ind_filename)}'
+	witness_base_arg = f'{VERIFIER_WITNESS_GEN_ARGUMENT.replace(VERIFIER_WITNESS_FILENAME_STRING, witness_location)}'
+	witness_ind_arg = f'{VERIFIER_WITNESS_GEN_ARGUMENT.replace(VERIFIER_WITNESS_FILENAME_STRING, witness_location)}'
 	VERIFIER_BASE_CALL.append(witness_base_arg)
 	VERIFIER_INDUCTION_CALL.append(witness_ind_arg)
-	return {base_filename, ind_filename}
-
-def extend_gml(base_filename: str, ind_filename: str, input_file: str, verif_result: bool):
-	"""
-	TODO
-	:param base_filename:
-	:param ind_filename:
-	:param input_file:
-	:param verif_result:
-	:return:
-	:rtype:
-	"""
-	if os.path.exists(base_filename):
-		print('Making base witness compatible with CPAChecker.')
-		extend_from_cbmc_to_cpa_format(base_filename, input_file, verif_result)
-	if os.path.exists(ind_filename):
-		print('Making induction witness compatible with CPAChecker.')
-		extend_from_cbmc_to_cpa_format(ind_filename, input_file, verif_result)
 
 def verify(input_file: str,
 		   timelimit: int=None,
@@ -403,7 +381,7 @@ def verify(input_file: str,
 		   ignore_functions_for_variable_moving=None,
 		   slicing:bool=False,
 		   print_smt_time:bool=False,
-		   gen_witness: bool=False):
+		   witness_location: str=None):
 	"""
 	The main entry point for the k-induction algorithm. Handles everything that concerns the k-induction approach, from
 	parsing, code transformation up to verifier execution and output.
@@ -414,7 +392,7 @@ def verify(input_file: str,
 		usage of variables. If None, all functions are taken into account.
 	:param slicing: Whether static slicing should be applied on the input.
 	:param print_smt_time: Whether to print out the time that was spent on SMT-solving.
-	:param gen_witness: Whether to generate a verification witness.
+	:param witness_location: The location of an optional witness file. If None, no witness is written.
 	:return: Either True, False or None (in case no definite answer could be given).
 	:rtype: False, True or None
 	"""
@@ -431,18 +409,18 @@ def verify(input_file: str,
 	print("Preparing input files for k-Induction...")
 	file_base_step      = prepare_base_step(input_file)
 	file_induction_step = prepare_induction_step(input_file, original_input_file)
-	if gen_witness:
-		print("Setting up configuration for generating witnesses.")
-		[base_filename, ind_filename] = add_witness_generation(input_file)
+	if witness_location:
+		print("Setting up configuration for generating witnesses...")
+		add_witness_generation(input_file, witness_location)
 	print("Starting k-Induction processes...")
 	if VERIFIER_IS_INCREMENTAL:
 		result = run_kinduction_incremental_bmc(file_base_step, file_induction_step, timelimit, print_smt_time)
 	else:
 		result = run_kinduction_bmc(file_base_step, file_induction_step, timelimit, print_smt_time)
 
-	if gen_witness and result is not None:
-		# Take care of incompatible GraphML representations of CBMC and CPAChecker
-		extend_gml(base_filename, ind_filename, input_file, result)
+	if witness_location and result is not None:
+		# Takes care of incompatible GraphML representations of CBMC and CPAChecker.
+		extend_from_cbmc_to_cpa_format(witness_location, input_file, result)
 
 	if result == True:
 		print("VERIFICATION SUCCESSFUL")
@@ -460,31 +438,28 @@ def read_config(config_file_name: str):
 	global VERIFIER_IS_INCREMENTAL, VERIFIER_BASE_CALL, VERIFIER_INDUCTION_CALL, VERIFIER_KINCREMENT_STRING, \
 		VERIFIER_FALSE_REGEX, VERIFIER_TRUE_REGEX, VERIFIER_K_REGEX, VERIFIER_SMT_TIME_REGEX_START, \
 		VERIFIER_SMT_TIME_REGEX_END, POLL_INTERVAL, VERIFIER_ASSUME_FUNCTION_NAME, VERIFIER_ERROR_FUNCTION_NAME, \
-		MAIN_FUNCTION_NAME, ASSERT_FUNCTION_NAME, VERIFIER_WITNESS_FILENAME_STRING, VERIFIER_WITNESS_GEN_ARGUMENT, \
-		VERIFIER_WITNESS_BASE_FILENAME, VERIFIER_WITNESS_INDUCTION_FILENAME
+		MAIN_FUNCTION_NAME, ASSERT_FUNCTION_NAME, VERIFIER_WITNESS_FILENAME_STRING, VERIFIER_WITNESS_GEN_ARGUMENT
 	with open(config_file_name) as config_file:
 		config = yaml.load(config_file)
-		VERIFIER_IS_INCREMENTAL       = config["verifier"].get("incremental", VERIFIER_IS_INCREMENTAL)
-		VERIFIER_BASE_CALL            = config["verifier"].get("base_call", VERIFIER_BASE_CALL).split()
-		VERIFIER_INDUCTION_CALL       = config["verifier"].get("induction_call", VERIFIER_INDUCTION_CALL).split()
-		VERIFIER_WITNESS_GEN_ARGUMENT = config["verifier"].get("witness_gen_argument", VERIFIER_WITNESS_GEN_ARGUMENT)
-		VERIFIER_WITNESS_FILENAME_STRING = config["verifier"].get("witness_filename_string", VERIFIER_WITNESS_FILENAME_STRING)
-		VERIFIER_WITNESS_BASE_FILENAME = config["verifier"].get("witness_base_filename", VERIFIER_WITNESS_BASE_FILENAME)
-		VERIFIER_WITNESS_INDUCTION_FILENAME = \
-			config["verifier"].get("witness_induction_filename", VERIFIER_WITNESS_INDUCTION_FILENAME)
-		VERIFIER_KINCREMENT_STRING    = config["verifier"].get("k_increment_string", VERIFIER_KINCREMENT_STRING)
-		VERIFIER_FALSE_REGEX          = config["verifier"]["output"].get("false_regex", VERIFIER_FALSE_REGEX)
-		VERIFIER_TRUE_REGEX           = config["verifier"]["output"].get("true_regex", VERIFIER_TRUE_REGEX)
-		VERIFIER_K_REGEX              = config["verifier"]["output"].get("k_regex", VERIFIER_K_REGEX)
-		VERIFIER_SMT_TIME_REGEX_START = config["verifier"]["output"].get("smt_time_start_regex",
+		VERIFIER_IS_INCREMENTAL          = config["verifier"].get("incremental", VERIFIER_IS_INCREMENTAL)
+		VERIFIER_BASE_CALL               = config["verifier"].get("base_call", VERIFIER_BASE_CALL).split()
+		VERIFIER_INDUCTION_CALL          = config["verifier"].get("induction_call", VERIFIER_INDUCTION_CALL).split()
+		VERIFIER_WITNESS_GEN_ARGUMENT    = config["verifier"].get("witness_gen_argument", VERIFIER_WITNESS_GEN_ARGUMENT)
+		VERIFIER_WITNESS_FILENAME_STRING = config["verifier"].get("witness_filename_string",
+																  VERIFIER_WITNESS_FILENAME_STRING)
+		VERIFIER_KINCREMENT_STRING       = config["verifier"].get("k_increment_string", VERIFIER_KINCREMENT_STRING)
+		VERIFIER_FALSE_REGEX             = config["verifier"]["output"].get("false_regex", VERIFIER_FALSE_REGEX)
+		VERIFIER_TRUE_REGEX              = config["verifier"]["output"].get("true_regex", VERIFIER_TRUE_REGEX)
+		VERIFIER_K_REGEX                 = config["verifier"]["output"].get("k_regex", VERIFIER_K_REGEX)
+		VERIFIER_SMT_TIME_REGEX_START    = config["verifier"]["output"].get("smt_time_start_regex",
 																		 VERIFIER_SMT_TIME_REGEX_START)
-		VERIFIER_SMT_TIME_REGEX_END   = config["verifier"]["output"].get("smt_time_end_regex",
+		VERIFIER_SMT_TIME_REGEX_END      = config["verifier"]["output"].get("smt_time_end_regex",
 																		 VERIFIER_SMT_TIME_REGEX_END)
-		POLL_INTERVAL                 = config["verifier"]["output"].get("poll_interval", POLL_INTERVAL)
-		VERIFIER_ASSUME_FUNCTION_NAME = config["input"].get("assume_function", VERIFIER_ASSUME_FUNCTION_NAME)
-		VERIFIER_ERROR_FUNCTION_NAME  = config["input"].get("error_function", VERIFIER_ERROR_FUNCTION_NAME)
-		MAIN_FUNCTION_NAME            = config["input"].get("main_function", MAIN_FUNCTION_NAME)
-		ASSERT_FUNCTION_NAME          = config["input"].get("assert_function", ASSERT_FUNCTION_NAME)
+		POLL_INTERVAL                    = config["verifier"]["output"].get("poll_interval", POLL_INTERVAL)
+		VERIFIER_ASSUME_FUNCTION_NAME    = config["input"].get("assume_function", VERIFIER_ASSUME_FUNCTION_NAME)
+		VERIFIER_ERROR_FUNCTION_NAME     = config["input"].get("error_function", VERIFIER_ERROR_FUNCTION_NAME)
+		MAIN_FUNCTION_NAME               = config["input"].get("main_function", MAIN_FUNCTION_NAME)
+		ASSERT_FUNCTION_NAME             = config["input"].get("assert_function", ASSERT_FUNCTION_NAME)
 
 def check_validity(args: Namespace):
 	"""
@@ -518,8 +493,9 @@ def __main__():
 	parser.add_argument("--slicing", action="store_true", help="Applies static slicing for the reachability of the "
 															   "error location prior to verification.")
 	parser.add_argument("--smt-time", action="store_true", help="Prints out the time that was spent on SMT-solving.")
-	parser.add_argument("-w", "--witness", action="store_true", help="Generates a witness for the verification. "
-																	 "Currently tested only for CBMC.")
+	parser.add_argument("-w", "--witness", type=str, default=None, help="Generates a witness for the verification at "
+																		"the specified file location. Currently tested "
+																		"only for CBMC.")
 
 	args = parser.parse_args()
 
