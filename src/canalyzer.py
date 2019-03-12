@@ -263,6 +263,7 @@ class CAnalyzer:
 		for declaration, scope in collector.declarations:
 			# Declaration can be valid in either the function parameters, the function body or in the global scope.
 			if scope == function or scope == function.body or scope == self.ast:
+				# Copying the declaration, as we do not want to modify the actual declaration inside the AST.
 				resolved_declaration = copy.deepcopy(declaration)
 				declarations.append(resolved_declaration)
 				# Fixed point iteration until all typedefs are resolved.
@@ -298,6 +299,8 @@ class CAnalyzer:
 			# *y = 2;
 			# Hence, we need to check if occurring on LHS or the address is somehow taken from it. Then we return True.
 			# Some static analysis algorithms may be useful here. What does Frama-C implement for this?
+			# As an approximation, we can use the variable moving module to remove global variables to the local
+			# function scope by using --variable-moving.
 			pass
 		return True
 
@@ -397,6 +400,8 @@ class CAnalyzer:
 		:param declaration: The declaration in which to resolve typedefs in. Type is one of c_ast.TypeDecl,
 			c_ast.PtrDecl or c_ast.ArrayDecl.
 		:param typedefs: A set of typedefs to check against.
+		:return: A set of the typedefs that was applied, hence a subset of the given typedefs set.
+		:rtype: set
 		"""
 		# Three cases to be distinguished: Type, array or pointer declaration. For arrays, pointers, the type
 		# resolving is just applied recursively. For a type declaration, all typedefs are first resolved, and in case we
@@ -415,6 +420,7 @@ class CAnalyzer:
 					elif type(declaration.type) == c_ast.IdentifierType:
 						if typedef.name in declaration.type.names:
 							declaration.type = copy.deepcopy(typedef.type.type)
+							declaration.quals = copy.deepcopy(typedef.quals)
 							applied_typedefs.add(typedef)
 				elif type(typedef) is c_ast.Struct and type(declaration.type) == c_ast.Struct:
 					if typedef.name == declaration.type.name:
