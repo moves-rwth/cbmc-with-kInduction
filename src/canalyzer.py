@@ -246,46 +246,39 @@ class CAnalyzer:
 	def __init__(self, ast: c_ast.FileAST, main_function_name: str="main"):
 		self.ast = ast
 		self.main_function_name = main_function_name
-		self.declarations = None
 
 	def identify_declarations(self, function: c_ast.FuncDef):
 		"""
 		Collects a list of all variables used in the function-scope - local and global. Each variable is represented by
-		its declaration, in which any typedefs are already completely resolved.
+		its declaration, in which any typedefs and struct tags are already completely resolved.
 		:param function: The functions to identify variables in.
 		:return: A list of declarations, one for each variable.
 		:rtype: list of c_ast.Decl
 		"""
-		if not self.declarations:
-			declarations = []
-			generator = GnuCGenerator()
-			typedefs = self.identify_typedefs()
-			collector = DeclarationCollector()
-			collector.visit(self.ast)
-			for declaration, scope in collector.declarations:
-				# Declaration can be valid in either the function parameters, the function body or in the global scope.
-				if scope == function or scope == function.body or scope == self.ast:
-					declarations.append(declaration)
-					# Fixed point iteration until all typedefs are resolved.
-					old_declaration = copy.deepcopy(declaration)
-					first = True
-					while str(generator.visit(old_declaration)) != str(generator.visit(declaration)) or first:
-						old_declaration = copy.deepcopy(declaration)
-						applied_typedefs = set()
-						prev_applied_typedefs = typedefs
-						inner_first = True
-						while (applied_typedefs != prev_applied_typedefs and len(applied_typedefs) > 0) or inner_first:
-							prev_applied_typedefs = applied_typedefs
-							applied_typedefs = self.resolve_typedefs(declaration.type, typedefs - applied_typedefs)
-							inner_first = False
-						first = False
-			# Cleaning up the resolving process: Removing tag-only struct types (as they are resolved now).
-			# Otherwise structs are declared twice, which is invalid C.
-			for typedef in typedefs:
-				if type(typedef) is c_ast.Struct:
-					AggregateRemover(typedef).visit(self.ast)
-			self.declarations = declarations
-		return self.declarations
+		declarations = []
+		generator = GnuCGenerator()
+		typedefs = self.identify_typedefs()
+		collector = DeclarationCollector()
+		collector.visit(self.ast)
+		for declaration, scope in collector.declarations:
+			# Declaration can be valid in either the function parameters, the function body or in the global scope.
+			if scope == function or scope == function.body or scope == self.ast:
+				resolved_declaration = copy.deepcopy(declaration)
+				declarations.append(resolved_declaration)
+				# Fixed point iteration until all typedefs are resolved.
+				old_declaration = copy.deepcopy(resolved_declaration)
+				first = True
+				while str(generator.visit(old_declaration)) != str(generator.visit(resolved_declaration)) or first:
+					old_declaration = copy.deepcopy(resolved_declaration)
+					applied_typedefs = set()
+					prev_applied_typedefs = typedefs
+					inner_first = True
+					while (applied_typedefs != prev_applied_typedefs and len(applied_typedefs) > 0) or inner_first:
+						prev_applied_typedefs = applied_typedefs
+						applied_typedefs = self.resolve_typedefs(resolved_declaration.type, typedefs - applied_typedefs)
+						inner_first = False
+					first = False
+		return declarations
 
 	def is_variable_of_declaration_modified(self, declaration: c_ast.Decl, block: c_ast.Compound):
 		"""
@@ -310,9 +303,9 @@ class CAnalyzer:
 
 	def identify_declarations_of_modified_variables(self, block: c_ast.Compound, function: c_ast.FuncDef):
 		"""
-		Given a PyCParser AST, returns all the variables that are modified in the compound block. Includes global
-		variables that are modified through function calls.
-		:parameter ast: The AST to find the variables in.
+		Returns the declarations of the variables that are modified in the compound block. Includes global variables
+		that are modified through function calls. The declarations are returned as a list in which any typedefs and
+		struct tags are already completely resolved.
 		:parameter block: An AST compound block representing the compound block to find the variables for.
 		:parameter function: The function the AST compound block is contained in.
 		:return: A list of declarations.
