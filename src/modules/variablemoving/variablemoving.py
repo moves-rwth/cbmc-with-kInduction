@@ -16,7 +16,6 @@ from pycparserext.ext_c_generator import GnuCGenerator
 
 sys.path.extend(['.', '..'])
 
-added_funcs = {"updateVariables"}
 structs = {"TABLE_MAP", "TABLE_AXIS", "TABLE_2D", "TABLE_3D", "Atomic_FIFO_t", "SMALL_AXIS", "SMALL_CURVE", "SMALL_MAP", "TABLE_CURVE", "TABLE_VALBLK", "SMALL_VALBLK", "OSC_IOCTL_CHANNEL", "OSC_IOCTL_CHANNEL_ROM", "TBu64_t", "lg_curve", "sm_curve", "XY_AXIS_PAIR", "rtB_abs_F_pvecc_main", "rtB_abs_F_pvecc_main_g", "rtB_max_F_pvecc_main", "BlockIO_pvecc_main", "D_Work_pvecc_main", "rtB_x3140_MTIDC_VcVmcDsr", "rtDW_x3140_MTIDC_VcVmcDsr", "rtDW_x3230_MTIDC_VcVmcDsr", "rtDW_x4200_MTIDC_VcVmcDsr", "rtB_VcVmcDsr_ODC_Present_VcVmcD", "rtDW_VcVmcDsr_ODC_Present_VcVmc", "BlockIO_VcVmcDsr", "ConstParam_VcVmcDsr", "D_Work_VcVmcDsr", "struct"}
 
 class FuncDefVisitor(c_ast.NodeVisitor):
@@ -169,17 +168,18 @@ def get_usages_for_variable(ast, variable):
 			funcs.append("")
 	return funcs
 
-def determine_variables_to_be_moved(var_to_funcs):
+def determine_variables_to_be_moved(var_to_funcs, ignore_functions=None):
 	change_var_to_funcs = {}
 	for var in var_to_funcs.keys():
-		if len(var_to_funcs[var]) == 1 and var_to_funcs[var][0] not in added_funcs:
+		if len(var_to_funcs[var]) == 1 and ignore_functions and var_to_funcs[var][0] not in ignore_functions:
 			change_var_to_funcs[var] = var_to_funcs[var]
 	return change_var_to_funcs
 
-def determine_variables_to_be_removed(var_to_funcs):
+def determine_variables_to_be_removed(var_to_funcs, ignore_functions=None):
 	vars = set()
 	for var in var_to_funcs.keys():
-		if len(var_to_funcs[var]) == 0 or (len(var_to_funcs[var]) == 1 and var_to_funcs[var][0] in added_funcs):
+		if len(var_to_funcs[var]) == 0 or (len(var_to_funcs[var]) == 1 and ignore_functions and
+										   var_to_funcs[var][0] in ignore_functions):
 			vars.add(var)
 	return vars
 
@@ -211,10 +211,12 @@ def remove_variables(ast, vars):
 	ast = remove_statements_with_variables(ast, vars)
 	return ast
 
-def variable_analysis_from_ast(ast: c_ast):
+def variable_analysis_from_ast(ast: c_ast, ignore_functions=None):
 	"""
 	Executes the variable analysis on the given AST.
 	:param ast: A PyCParser AST.
+	:param ignore_functions: A set of functions whose contents are ignored when determining the usage of variables. If
+		None, all functions are taken into account.
 	:return: A PyCParser AST on which the analysis has been applied.
 	:rtype: c_ast
 	"""
@@ -229,9 +231,8 @@ def variable_analysis_from_ast(ast: c_ast):
 	var_to_funcs = {}
 	for var in vars:
 		var_to_funcs[var] = get_usages_for_variable(ast, var)
-
-	var_and_funcs_to_be_moved = determine_variables_to_be_moved(var_to_funcs)
-	vars_to_be_removed = determine_variables_to_be_removed(var_to_funcs)
+	var_and_funcs_to_be_moved = determine_variables_to_be_moved(var_to_funcs, ignore_functions)
+	vars_to_be_removed = determine_variables_to_be_removed(var_to_funcs, ignore_functions)
 
 	if len(vars_to_be_removed) > 0:
 		ast = remove_variables(ast, vars_to_be_removed)
@@ -243,18 +244,20 @@ def variable_analysis_from_ast(ast: c_ast):
 			  + "{:.1%}".format((len(var_and_funcs_to_be_moved)/len(vars))) + ") to their local function scope.")
 	return ast
 
-def variable_analysis_from_file(input_file: str, output: str=None):
+def variable_analysis_from_file(input_file: str, output: str=None, ignore_functions=None):
 	"""
 	Executes the variable analysis from a given file name. Writes to the output file if given, otherwise creates a
 	temporary file and writes the results to it.
 	:param input_file: The location of the input file.
 	:param output: An optional file location.
+	:param ignore_functions: A set of functions whose contents are ignored when determining the usage of variables. If
+		None, all functions are taken into account.
 	:return: The file name of the output file.
 	:rtype: str
 	"""
 	with open(input_file) as input:
 		ast = GnuCParser().parse(input.read())
-		changed_ast = variable_analysis_from_ast(ast)
+		changed_ast = variable_analysis_from_ast(ast, ignore_functions)
 		if not output:
 			output_file = tempfile.NamedTemporaryFile(delete=False, suffix=".c")
 			output = open(output_file.name, "w")

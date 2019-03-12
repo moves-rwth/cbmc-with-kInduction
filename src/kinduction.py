@@ -360,6 +360,7 @@ def run_kinduction_bmc(file_base: str, file_induction: str, timelimit: int=None,
 def verify(input_file: str,
 		   timelimit: int=None,
 		   variable_moving:bool=False,
+		   ignore_functions_for_variable_moving=None,
 		   slicing:bool=False,
 		   print_smt_time:bool=False):
 	"""
@@ -368,6 +369,8 @@ def verify(input_file: str,
 	:param input_file: A filename whose file contains the C code to run k-induction on.
 	:param timelimit: An optional limit on the CPU-time, in seconds.
 	:param variable_moving: Whether the variable moving analysis should be applied on the input.
+	:param ignore_functions_for_variable_moving: A set of functions whose contents are ignored when determining the
+		usage of variables. If None, all functions are taken into account.
 	:param slicing: Whether static slicing should be applied on the input.
 	:param print_smt_time: Whether to print out the time that was spent on SMT-solving.
 	:return: Either True, False or None (in case no definite answer could be given).
@@ -379,7 +382,7 @@ def verify(input_file: str,
 		original_input_file = None
 	if variable_moving:
 		print("Applying variable moving analysis...")
-		input_file = variable_analysis_from_file(input_file)
+		input_file = variable_analysis_from_file(input_file, ignore_functions=ignore_functions_for_variable_moving)
 	if slicing:
 		print("Applying static slicing...")
 		input_file = static_slicing_from_file(input_file)
@@ -452,6 +455,10 @@ def __main__():
 	parser.add_argument("-t", "--timelimit",type=int, help="The maximum CPU-time [s] for the verification.")
 	parser.add_argument("--variable-moving", action="store_true", help="Moves variables to the most local scope prior "
 																	   "to verification.")
+	parser.add_argument("--ignore-functions-for-variable-moving", type=str, help="An optional list of function names "
+																				 "that are ignored when determining "
+																				 "whether a variable can be moved or "
+																				 "not. Delimited by \',\'.")
 	parser.add_argument("--slicing", action="store_true", help="Applies static slicing for the reachability of the "
 															   "error location prior to verification.")
 	parser.add_argument("--smt-time", action="store_true", help="Prints out the time that was spent on SMT-solving.")
@@ -472,7 +479,12 @@ def __main__():
 		exit(1)
 
 	# Runs the verification task.
-	verify(args.input, args.timelimit, args.variable_moving, args.slicing, args.smt_time)
+	verify(args.input,
+		   args.timelimit,
+		   args.variable_moving,
+		   set([str(item) for item in args.ignore_functions_for_variable_moving.split(',')]),
+		   args.slicing,
+		   args.smt_time)
 
 	exit(0)
 
