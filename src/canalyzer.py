@@ -288,7 +288,8 @@ class CAnalyzer:
 		:param block: The block to which the modifications should be local.
 		:return: True or false.
 		"""
-		if "const" in declaration.quals and type(declaration.type) is not c_ast.PtrDecl:
+		if ("const" in declaration.quals or (hasattr(declaration.type, "quals") and "const" in declaration.type.quals))\
+				and type(declaration.type) is not c_ast.PtrDecl:
 			# Constant variables can not be modified. Constant pointers can be modified!
 			return False
 		else:
