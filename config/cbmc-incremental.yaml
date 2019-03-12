@@ -1,7 +1,7 @@
 verifier:
   incremental   : yes
-  base_call     : "cbmc-ps.sh --incremental-check main.X --no-unwinding-assertions"
-  induction_call: "cbmc-ps.sh --incremental-check main.X --stop-when-unsat --no-unwinding-assertions"
+  base_call     : "cbmc--incremental.sh --32 --incremental-check main.X --no-unwinding-assertions"
+  induction_call: "cbmc--incremental.sh --32 --incremental-check main.X --stop-when-unsat --no-unwinding-assertions"
   output:
     false_regex         : "VERIFICATION FAILED"
     true_regex          : "VERIFICATION SUCCESSFUL"

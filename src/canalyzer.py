@@ -151,13 +151,12 @@ class PropertyStatementFinder(c_ast.NodeVisitor):
 		elif node.name.name == ASSERT_FUNCTION_NAME:
 			self.statement = node
 
-class TypedefCollector(c_ast.NodeVisitor):
+class TypedefAndStructsCollector(c_ast.NodeVisitor):
 	"""
-	Collects all typedefs in a list of tuples. The first element of each tuple contains the left-hand side of the
-	typedef (i.e. the overlaid types) as a list of strings, and the second element contains the new typename as a str.
+	Collects all typedefs and structs.
 	"""
 	def __init__(self):
-		self.typedefs = []
+		self.typedefs = set()
 
 	def generic_visit(self, node):
 		if type(node) != FuncDeclExt and type(node) != TypeDeclExt:
@@ -165,7 +164,12 @@ class TypedefCollector(c_ast.NodeVisitor):
 				self.visit(c)
 
 	def visit_Typedef(self, node):
-		self.typedefs.append(node)
+		self.typedefs.add(node)
+
+	def visit_Decl(self, node):
+		# Struct tags can also be used as a type elsewhere.
+		if hasattr(node, "type") and type(node.type) is c_ast.Struct:
+			self.typedefs.add(node.type)
 
 class DeclarationCollector(c_ast.NodeVisitor):
 	"""
@@ -184,7 +188,8 @@ class DeclarationCollector(c_ast.NodeVisitor):
 
 	def visit_Decl(self, node):
 		# Searches for the scope of the variable - It is either block, function parameter, or global or an aggregate.
-		if type(node.type) != c_ast.FuncDecl and type(node.type) != FuncDeclExt:
+		if type(node.type) != c_ast.FuncDecl and type(node.type) != FuncDeclExt and node.name and len(self.parents) > 0\
+				and type(self.parents[-1]) is not c_ast.Typedef:
 			scope = None
 			for parent in reversed(self.parents):
 				if type(parent) == c_ast.FileAST\
@@ -216,15 +221,22 @@ class LoopFinder(c_ast.NodeVisitor):
 	def visit_For(self, node):
 		self.loops.append(node)
 
-class AggregateAnonymizer(c_ast.NodeVisitor):
+class AggregateRemover(c_ast.NodeVisitor):
 	"""
-	Visits all aggregates and removes their names.
+	Visits all aggregates in compounds and ASTs and removes matching ones.
 	"""
-	def visit_Struct(self, node):
-		node.name = None
+	def __init__(self, aggregate):
+		self.aggregate = aggregate
 
-	def visit_Union(self, node):
-		node.name = None
+	def visit_Compound(self, node):
+		for item in node.block_items:
+			if hasattr(item, "type") and item.type == self.aggregate:
+				node.block_items.remove(item)
+
+	def visit_FileAST(self, node):
+		for item in node.ext:
+			if hasattr(item, "type") and item.type == self.aggregate:
+				node.ext.remove(item)
 
 ########################################################################################################################
 # Analyzer                                                                                                             #
@@ -238,20 +250,35 @@ class CAnalyzer:
 	def identify_declarations(self, function: c_ast.FuncDef):
 		"""
 		Collects a list of all variables used in the function-scope - local and global. Each variable is represented by
-		its declaration, in which any typedefs are already completely resolved.
+		its declaration, in which any typedefs and struct tags are already completely resolved.
 		:param function: The functions to identify variables in.
 		:return: A list of declarations, one for each variable.
 		:rtype: list of c_ast.Decl
 		"""
 		declarations = []
+		generator = GnuCGenerator()
 		typedefs = self.identify_typedefs()
 		collector = DeclarationCollector()
 		collector.visit(self.ast)
 		for declaration, scope in collector.declarations:
 			# Declaration can be valid in either the function parameters, the function body or in the global scope.
 			if scope == function or scope == function.body or scope == self.ast:
-				declarations.append(declaration)
-				self.resolve_typedefs(declaration.type, typedefs)
+				# Copying the declaration, as we do not want to modify the actual declaration inside the AST.
+				resolved_declaration = copy.deepcopy(declaration)
+				declarations.append(resolved_declaration)
+				# Fixed point iteration until all typedefs are resolved.
+				old_declaration = copy.deepcopy(resolved_declaration)
+				first = True
+				while str(generator.visit(old_declaration)) != str(generator.visit(resolved_declaration)) or first:
+					old_declaration = copy.deepcopy(resolved_declaration)
+					applied_typedefs = set()
+					prev_applied_typedefs = typedefs
+					inner_first = True
+					while (applied_typedefs != prev_applied_typedefs and len(applied_typedefs) > 0) or inner_first:
+						prev_applied_typedefs = applied_typedefs
+						applied_typedefs = self.resolve_typedefs(resolved_declaration.type, typedefs - applied_typedefs)
+						inner_first = False
+					first = False
 		return declarations
 
 	def is_variable_of_declaration_modified(self, declaration: c_ast.Decl, block: c_ast.Compound):
@@ -261,7 +288,8 @@ class CAnalyzer:
 		:param block: The block to which the modifications should be local.
 		:return: True or false.
 		"""
-		if "const" in declaration.quals and type(declaration.type) is not c_ast.PtrDecl:
+		if ("const" in declaration.quals or (hasattr(declaration.type, "quals") and "const" in declaration.type.quals))\
+				and type(declaration.type) is not c_ast.PtrDecl:
 			# Constant variables can not be modified. Constant pointers can be modified!
 			return False
 		else:
@@ -272,14 +300,16 @@ class CAnalyzer:
 			# *y = 2;
 			# Hence, we need to check if occurring on LHS or the address is somehow taken from it. Then we return True.
 			# Some static analysis algorithms may be useful here. What does Frama-C implement for this?
+			# As an approximation, we can use the variable moving module to remove global variables to the local
+			# function scope by using --variable-moving.
 			pass
 		return True
 
 	def identify_declarations_of_modified_variables(self, block: c_ast.Compound, function: c_ast.FuncDef):
 		"""
-		Given a PyCParser AST, returns all the variables that are modified in the compound block. Includes global
-		variables that are modified through function calls.
-		:parameter ast: The AST to find the variables in.
+		Returns the declarations of the variables that are modified in the compound block. Includes global variables
+		that are modified through function calls. The declarations are returned as a list in which any typedefs and
+		struct tags are already completely resolved.
 		:parameter block: An AST compound block representing the compound block to find the variables for.
 		:parameter function: The function the AST compound block is contained in.
 		:return: A list of declarations.
@@ -356,39 +386,51 @@ class CAnalyzer:
 
 	def identify_typedefs(self):
 		"""
-		Searches for all typedefs. Returns the typedefs as a list of tuples, where the left hand side contains the
-		original C types as a list of strings and the right hand side the typedef'd alias as a string.
-		:param ast: The AST to find the typedef's in.
-		:return: A list of tuples containing the typedefs.
-		:rtype: list
+		Searches for all typedefs and tagged structs.
+		:return: A set of the typedefs and structs.
+		:rtype: set of c_ast.Typedef or c_ast.Struct
 		"""
-		collector = TypedefCollector()
+		collector = TypedefAndStructsCollector()
 		collector.visit(self.ast)
 		return collector.typedefs
 
-	def resolve_typedefs(self, declaration: c_ast.Node, typedefs: list):
+	def resolve_typedefs(self, declaration: c_ast.Node, typedefs: set):
 		"""
 		Resolves any typedefs present in the given declaration for the given typedef list. Works in-place on the AST and
 		applies itself recursively until no more typedefs are found.
 		:param declaration: The declaration in which to resolve typedefs in. Type is one of c_ast.TypeDecl,
 			c_ast.PtrDecl or c_ast.ArrayDecl.
-		:param typedefs: A list of typedefs to check against.
+		:param typedefs: A set of typedefs to check against.
+		:return: A set of the typedefs that was applied, hence a subset of the given typedefs set.
+		:rtype: set
 		"""
 		# Three cases to be distinguished: Type, array or pointer declaration. For arrays, pointers, the type
 		# resolving is just applied recursively. For a type declaration, all typedefs are first resolved, and in case we
 		# have a aggregate type (struct or union), the resolving is again applied recursively to their members.
+		# Keeps track of non-resolved typedefs for recursive application of this function. We do not want already
+		# resolved typedefs to be re-applied again.
+		applied_typedefs = set()
 		if type(declaration) == c_ast.TypeDecl:
 			for typedef in typedefs:
-				if type(declaration.type) == c_ast.Struct or type(declaration.type) == c_ast.Union:
+				if type(typedef) is c_ast.Typedef:
+					if type(declaration.type) == c_ast.Struct or type(declaration.type) == c_ast.Union:
+						if typedef.name == declaration.type.name:
+							declaration.type = copy.deepcopy(typedef.type.type)
+							declaration.quals = copy.deepcopy(typedef.quals)
+							applied_typedefs.add(typedef)
+					elif type(declaration.type) == c_ast.IdentifierType:
+						if typedef.name in declaration.type.names:
+							declaration.type = copy.deepcopy(typedef.type.type)
+							declaration.quals = copy.deepcopy(typedef.quals)
+							applied_typedefs.add(typedef)
+				elif type(typedef) is c_ast.Struct and type(declaration.type) == c_ast.Struct:
 					if typedef.name == declaration.type.name:
-						declaration.type = copy.deepcopy(typedef.type.type)
-						declaration.quals = copy.deepcopy(typedef.quals)
-				elif type(declaration.type) == c_ast.IdentifierType:
-					if typedef.name in declaration.type.names:
-						declaration.type = copy.deepcopy(typedef.type.type)
-				AggregateAnonymizer().visit(declaration.type)
+						declaration.type = copy.deepcopy(typedef)
+						applied_typedefs.add(typedef)
 			if type(declaration.type) == c_ast.Struct or type(declaration.type) == c_ast.Union:
-				for member in declaration.type.decls:
-					self.resolve_typedefs(member.type, typedefs)
+				if declaration.type.decls:
+					for member in declaration.type.decls:
+						self.resolve_typedefs(member.type, typedefs)
 		elif type(declaration) == c_ast.ArrayDecl or type(declaration) == c_ast.PtrDecl:
 			self.resolve_typedefs(declaration.type, typedefs)
+		return applied_typedefs

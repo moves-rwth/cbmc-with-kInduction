@@ -77,6 +77,11 @@ class AggregateDeanonymizer(c_ast.NodeVisitor):
 	def __init__(self, unavailable_identifiers: set):
 		self.unavailable_identifiers = unavailable_identifiers
 
+	def generic_visit(self, node):
+		if type(node) != FuncDeclExt and type(node) != TypeDeclExt:
+			for c in node:
+				self.visit(c)
+
 	def visit_Struct(self, node):
 		if node.name == None:
 			node.name = self.__generate_new_typename()
@@ -86,6 +91,7 @@ class AggregateDeanonymizer(c_ast.NodeVisitor):
 			node.name = self.__generate_new_typename()
 
 	def __generate_new_typename(self):
+		typename = ""
 		for i in range(5, sys.maxsize):
 			typename = "".join(random.choices(string.ascii_letters, k=i))
 			if typename not in self.unavailable_identifiers:
@@ -95,6 +101,11 @@ class AggregateDeanonymizer(c_ast.NodeVisitor):
 class IdentifierCollector(c_ast.NodeVisitor):
 	def __init__(self):
 		self.identifiers = set()
+
+	def generic_visit(self, node):
+		if type(node) != FuncDeclExt and type(node) != TypeDeclExt:
+			for c in node:
+				self.visit(c)
 
 	def visit_TypeDecl(self, node):
 		if (type(node.type) == c_ast.Struct or type(node.type) == c_ast.Union) and node.type.name is not None:
@@ -137,6 +148,16 @@ class DeclarationReplacer(c_ast.NodeVisitor):
 	def visit_Decl(self, node):
 		if node.name == self.declaration.name:
 			node.init = c_ast.Constant("int", str(self.new_value))
+
+class SliceFuncCallUpdater(c_ast.NodeVisitor):
+	"""
+	Searches for any function calls, and append "_slice_1" if they do not contain this string already. This needs to be
+	done for Frama-C slicing, as it changes the function names.
+	Note: This may not work on every possible slicing outcome, but should suffice for most of the cases.
+	"""
+	def visit_FuncCall(self, node):
+		if type(node.name) is c_ast.ID and (len(node.name.name) < 9 or node.name.name[-8] != "_slice_1"):
+			node.name.name = node.name.name + "_slice_1"
 
 ########################################################################################################################
 # Transformer                                                                                                          #
@@ -203,14 +224,15 @@ class CTransformer:
 			# CASE STRUCT
 			if type(declaration.type.type) == c_ast.Struct:
 				# Iterates over every struct member and creates a havoc block for this. Useful for nested structs.
-				for member in declaration.type.type.decls:
-					if parent is None:
-						new_parent = c_ast.StructRef(c_ast.ID(declaration.name), ".", None)
-					else:
-						new_parent = c_ast.StructRef(parent, ".", None)
-					rec_svcomp_havoc_funcs, rec_havoc_block = self.create_havoc_assignment(member, new_parent)
-					body_items.append(rec_havoc_block)
-					svcomp_havoc_functions = svcomp_havoc_functions.union(rec_svcomp_havoc_funcs)
+				if declaration.type.type.decls:
+					for member in declaration.type.type.decls:
+						if parent is None:
+							new_parent = c_ast.StructRef(c_ast.ID(declaration.name), ".", None)
+						else:
+							new_parent = c_ast.StructRef(parent, ".", None)
+						rec_svcomp_havoc_funcs, rec_havoc_block = self.create_havoc_assignment(member, new_parent)
+						body_items.append(rec_havoc_block)
+						svcomp_havoc_functions = svcomp_havoc_functions.union(rec_svcomp_havoc_funcs)
 			# CASE UNION
 			elif type(declaration.type.type) == c_ast.Union and len(declaration.type.type.decls) > 0:
 				# For a union, we just havoc the very first member.
@@ -252,7 +274,7 @@ class CTransformer:
 					body_items.append(rec_havoc_block)
 					svcomp_havoc_functions = svcomp_havoc_functions.union(rec_svcomp_havoc_funcs)
 			else:
-				print("WARNING: Non-constant array encountered!") # TODO? (Can be done by just assigning a pointer.)
+				sys.stderr.write("WARNING: Non-constant array encountered!") # TODO
 		# CASE POINTER
 		elif type(declaration.type) == c_ast.PtrDecl:
 			if type(declaration.type.type) == c_ast.TypeDecl and \
@@ -420,6 +442,23 @@ class CTransformer:
 		:param expression: The new expression.
 		"""
 		PropertyReplacer(expression).visit(self.ast)
+
+	def add_property(self, property: c_ast.ExprList, loop: c_ast.DoWhile or c_ast.While or c_ast.For, slice: bool=True):
+		"""
+		Adds the given expression to the end of the given loop. Note that by doing this, any previous property becomes
+		unusable for our k-induction process.
+		:param expression: The expression to be added.
+		:param loop: The loop to add the property to.
+		:param slice: Whether the code was sliced by Frama-C or not.
+		"""
+		if hasattr(loop, "stmt") and type(loop.stmt) is c_ast.Compound:
+			if slice:
+				SliceFuncCallUpdater().visit(property)
+			property = self.join_expression_list("&&", property)
+			property_check = c_ast.If(cond=property,
+									  iftrue=c_ast.Compound([c_ast.FuncCall(c_ast.ID("__VERIFIER_error"), None)]),
+									  iffalse=None)
+			loop.stmt.block_items.append(property_check)
 
 	def replace_initial_value(self, declaration: str, scope: c_ast.Node, new_value: int):
 		"""
