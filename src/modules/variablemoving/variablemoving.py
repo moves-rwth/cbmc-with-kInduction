@@ -14,8 +14,6 @@ from pycparser import c_ast
 from pycparserext.ext_c_parser import GnuCParser, FuncDeclExt, TypeDeclExt
 from pycparserext.ext_c_generator import GnuCGenerator
 
-sys.path.extend(['.', '..'])
-
 structs = {"TABLE_MAP", "TABLE_AXIS", "TABLE_2D", "TABLE_3D", "Atomic_FIFO_t", "SMALL_AXIS", "SMALL_CURVE", "SMALL_MAP", "TABLE_CURVE", "TABLE_VALBLK", "SMALL_VALBLK", "OSC_IOCTL_CHANNEL", "OSC_IOCTL_CHANNEL_ROM", "TBu64_t", "lg_curve", "sm_curve", "XY_AXIS_PAIR", "rtB_abs_F_pvecc_main", "rtB_abs_F_pvecc_main_g", "rtB_max_F_pvecc_main", "BlockIO_pvecc_main", "D_Work_pvecc_main", "rtB_x3140_MTIDC_VcVmcDsr", "rtDW_x3140_MTIDC_VcVmcDsr", "rtDW_x3230_MTIDC_VcVmcDsr", "rtDW_x4200_MTIDC_VcVmcDsr", "rtB_VcVmcDsr_ODC_Present_VcVmcD", "rtDW_VcVmcDsr_ODC_Present_VcVmc", "BlockIO_VcVmcDsr", "ConstParam_VcVmcDsr", "D_Work_VcVmcDsr", "struct"}
 
 class FuncDefVisitor(c_ast.NodeVisitor):
