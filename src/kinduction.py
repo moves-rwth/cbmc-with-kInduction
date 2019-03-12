@@ -478,11 +478,15 @@ def __main__():
 	if not check_validity(args):
 		exit(1)
 
+	if args.ignore_functions_for_variable_moving:
+		ignore_functions = set([str(item) for item in args.ignore_functions_for_variable_moving.split(',')])
+	else:
+		ignore_functions = set()
 	# Runs the verification task.
 	verify(args.input,
 		   args.timelimit,
 		   args.variable_moving,
-		   set([str(item) for item in args.ignore_functions_for_variable_moving.split(',')]),
+		   ignore_functions,
 		   args.slicing,
 		   args.smt_time)
 
