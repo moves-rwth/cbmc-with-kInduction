@@ -38,8 +38,8 @@ class SwitchDeclarationFinderAndMover(c_ast.NodeVisitor):
 					declarations.append(item)
 				else:
 					new_block_items.append(item)
-			node.stmt.block_items = new_block_items
-			if len(self.parents) > 0:
+			if len(self.parents) > 0 and len(declarations) > 0:
+				node.stmt.block_items = new_block_items
 				new_switch_block = c_ast.Compound(declarations + [node])
 				if hasattr(self.parents[-1], "block_items"):
 					index = self.parents[-1].block_items.index(node)
@@ -48,14 +48,13 @@ class SwitchDeclarationFinderAndMover(c_ast.NodeVisitor):
 				elif hasattr(self.parents[-1], "iftrue") and self.parents[-1].iftrue == node:
 					self.parents[-1].iftrue = new_switch_block
 				elif hasattr(self.parents[-1], "iffalse") and self.parents[-1].iffalse == node:
-					self.parents[-1].iftrue = new_switch_block
+					self.parents[-1].iffalse = new_switch_block
 				else:
 					# TODO: The three cases above most likely don't cover all possible contexts in which a switch can
 					# occur. This works on both case studies, so sufficient as of now. But for future use, one might
 					# want to evaluate from the C standard which contexts are generaly possible!
-					print("Can not identify the context of a switch statement that is contained in " +
-						  str(type(self.parents[-1])), file=sys.stderr)
-					exit(1)
+					sys.stderr.write("Can not identify the context of a switch statement that is contained in " +
+									 str(type(self.parents[-1])), file=sys.stderr)
 
 def move_switch_local_variables(ast: c_ast):
 	"""
@@ -105,7 +104,7 @@ def static_slicing_from_file(input_file: str, output: str=None, slice_funcs: lis
 	slice = re.sub("/\*.*?\*/", "", slice)
 	# Parses the slice and original to allow for the process of moving switch-local variables out of switch blocks.
 	slice_ast = GnuCParser().parse(slice)
-	# Re-adds possibly lost __VERIFIER_assume statements.
+	# By moving switch-local variables outside of the switch-statement, we prevent a bug in CBMC v5.11 and earlier.
 	move_switch_local_variables(slice_ast)
 	# Output printing.
 	if not output:
