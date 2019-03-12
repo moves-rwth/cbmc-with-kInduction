@@ -54,7 +54,7 @@ class SwitchDeclarationFinderAndMover(c_ast.NodeVisitor):
 					# occur. This works on both case studies, so sufficient as of now. But for future use, one might
 					# want to evaluate from the C standard which contexts are generaly possible!
 					sys.stderr.write("Can not identify the context of a switch statement that is contained in " +
-									 str(type(self.parents[-1])), file=sys.stderr)
+									 str(type(self.parents[-1])))
 
 def move_switch_local_variables(ast: c_ast):
 	"""
