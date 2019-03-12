@@ -89,7 +89,6 @@ def prepare_induction_step(input_file: str, original_input_file: str=None):
 				# if statement in such a way that it becomes unrecognizable for our property identification process.
 				transformer.add_property(CAnalyzer(parser.parse(original_file.read())).identify_property(), main_loop)
 		property = analyzer.identify_property()
-		print(";\n".join([GnuCGenerator().visit(d) for d in declarations]))
 	except (NoSuchFunctionException,
 			NoMainLoopException,
 			MultipleMainLoopsException,
