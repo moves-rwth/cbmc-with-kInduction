@@ -274,7 +274,7 @@ class CTransformer:
 					body_items.append(rec_havoc_block)
 					svcomp_havoc_functions = svcomp_havoc_functions.union(rec_svcomp_havoc_funcs)
 			else:
-				print("WARNING: Non-constant array encountered!") # TODO? (Can be done by just assigning a pointer.)
+				print("WARNING: Non-constant array encountered!") # TODO. Can not be done by just assigning a pointer.
 		# CASE POINTER
 		elif type(declaration.type) == c_ast.PtrDecl:
 			if type(declaration.type.type) == c_ast.TypeDecl and \
