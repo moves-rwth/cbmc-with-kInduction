@@ -370,8 +370,8 @@ def add_witness_generation(input_file: str, witness_location: str):
 	:param witness_location:
 	"""
 	global VERIFIER_BASE_CALL, VERIFIER_INDUCTION_CALL
-	witness_base_arg = f'{VERIFIER_WITNESS_GEN_ARGUMENT.replace(VERIFIER_WITNESS_FILENAME_STRING, witness_location)}'
-	witness_ind_arg = f'{VERIFIER_WITNESS_GEN_ARGUMENT.replace(VERIFIER_WITNESS_FILENAME_STRING, witness_location)}'
+	witness_base_arg = VERIFIER_WITNESS_GEN_ARGUMENT.replace(VERIFIER_WITNESS_FILENAME_STRING, witness_location)
+	witness_ind_arg = VERIFIER_WITNESS_GEN_ARGUMENT.replace(VERIFIER_WITNESS_FILENAME_STRING, witness_location)
 	VERIFIER_BASE_CALL.append(witness_base_arg)
 	VERIFIER_INDUCTION_CALL.append(witness_ind_arg)
 
