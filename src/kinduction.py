@@ -67,13 +67,15 @@ def prepare_base_step(input_file: str):
 	shutil.copy(input_file, output_file.name)
 	return output_file.name
 
-def prepare_induction_step(input_file: str, original_input_file: str=None):
+def prepare_induction_step(input_file: str, original_input_file: str=None, readd_property_from_original: bool=False):
 	"""
 	Prepares the input C file for the execution of the induction step. It parses the code, havocs the main loop
 	variables and adds the property assumption to the beginning of the loop body. When finished, the C code is written
 	to a temporary working file which is then returned.
 	:param input_file: The input C file location to prepare.
-	:param input_file: The input C file location of the original input code, in case analyses were previously applied.
+	:param original_input_file: The input C file location of the original input code.
+	:param readd_property_from_original: Whether the original input file should be read and the property readded from
+		this file to the input file.
 	:return: The location of the prepared C file for the induction step.
 	:rtype: str
 	"""
@@ -396,10 +398,7 @@ def verify(input_file: str,
 	:return: Either True, False or None (in case no definite answer could be given).
 	:rtype: False, True or None
 	"""
-	if slicing:
-		original_input_file = input_file
-	else:
-		original_input_file = None
+	original_input_file = input_file
 	if variable_moving:
 		print("Applying variable moving analysis...")
 		input_file = variable_analysis_from_file(input_file, ignore_functions=ignore_functions_for_variable_moving)
@@ -408,7 +407,7 @@ def verify(input_file: str,
 		input_file = static_slicing_from_file(input_file)
 	print("Preparing input files for k-Induction...")
 	file_base_step      = prepare_base_step(input_file)
-	file_induction_step = prepare_induction_step(input_file, original_input_file)
+	file_induction_step = prepare_induction_step(input_file, original_input_file, slicing)
 	if witness_location:
 		print("Setting up configuration for generating witnesses...")
 		add_witness_generation(input_file, witness_location)
