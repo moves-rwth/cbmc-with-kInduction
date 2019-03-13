@@ -1,0 +1,100 @@
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <key attr.name="originFileName" attr.type="string" for="edge" id="originfile">
+    <default>&lt;command-line&gt;</default>
+  </key>
+  <key attr.name="invariant" attr.type="string" for="node" id="invariant"/>
+  <key attr.name="invariant.scope" attr.type="string" for="node" id="invariant.scope"/>
+  <key attr.name="nodeType" attr.type="string" for="node" id="nodetype">
+    <default>path</default>
+  </key>
+  <key attr.name="isFrontierNode" attr.type="boolean" for="node" id="frontier">
+    <default>false</default>
+  </key>
+  <key attr.name="isViolationNode" attr.type="boolean" for="node" id="violation">
+    <default>false</default>
+  </key>
+  <key attr.name="isEntryNode" attr.type="boolean" for="node" id="entry">
+    <default>false</default>
+  </key>
+  <key attr.name="isSinkNode" attr.type="boolean" for="node" id="sink">
+    <default>false</default>
+  </key>
+  <key attr.name="enterLoopHead" attr.type="boolean" for="edge" id="enterLoopHead">
+    <default>false</default>
+  </key>
+  <key attr.name="threadNumber" attr.type="int" for="node" id="thread">
+    <default>0</default>
+  </key>
+  <key attr.name="sourcecodeLanguage" attr.type="string" for="graph" id="sourcecodelang"/>
+  <key attr.name="programFile" attr.type="string" for="graph" id="programfile"/>
+  <key attr.name="programHash" attr.type="string" for="graph" id="programhash"/>
+  <key attr.name="specification" attr.type="string" for="graph" id="specification"/>
+  <key attr.name="architecture" attr.type="string" for="graph" id="architecture"/>
+  <key attr.name="producer" attr.type="string" for="graph" id="producer"/>
+  <key attr.name="sourcecode" attr.type="string" for="edge" id="sourcecode"/>
+  <key attr.name="startline" attr.type="int" for="edge" id="startline"/>
+  <key attr.name="control" attr.type="string" for="edge" id="control"/>
+  <key attr.name="assumption" attr.type="string" for="edge" id="assumption"/>
+  <key attr.name="assumption.resultfunction" attr.type="string" for="edge" id="assumption.resultfunction"/>
+  <key attr.name="assumption.scope" attr.type="string" for="edge" id="assumption.scope"/>
+  <key attr.name="enterFunction" attr.type="string" for="edge" id="enterFunction"/>
+  <key attr.name="returnFromFunction" attr.type="string" for="edge" id="returnFrom"/>
+  <key attr.name="witness-type" attr.type="string" for="graph" id="witness-type"/>
+  <graph edgedefault="directed">
+    <data key="sourcecodelang">C</data>
+    <node id="sink"/>
+    <node id="1.27">
+      <data key="entry">true</data>
+    </node>
+    <edge source="1.27" target="3.29">
+      <data key="originfile">/tmp/lw338104/login18-1_53191/tmp0cw86gt5.c</data>
+      <data key="startline">5</data>
+    </edge>
+    <node id="3.29">
+      <data key="invariant">x!0@1#2 = 0;</data>
+      <data key="invariant.scope">main</data>
+    </node>
+    <edge source="3.29" target="5.31">
+      <data key="originfile">/tmp/lw338104/login18-1_53191/tmp0cw86gt5.c</data>
+      <data key="startline">6</data>
+    </edge>
+    <node id="5.31">
+      <data key="invariant">k!0@1#2 = 1u;</data>
+      <data key="invariant.scope">main</data>
+    </node>
+    <edge source="5.31" target="6.32">
+      <data key="originfile">/tmp/lw338104/login18-1_53191/tmp0cw86gt5.c</data>
+      <data key="startline">7</data>
+    </edge>
+    <node id="6.32">
+      <data key="invariant">i!0@1#2 = 0u;</data>
+      <data key="invariant.scope">main</data>
+    </node>
+    <edge source="6.32" target="9.35">
+      <data key="originfile">/tmp/lw338104/login18-1_53191/tmp0cw86gt5.c</data>
+      <data key="startline">10</data>
+    </edge>
+    <node id="9.35">
+      <data key="invariant">x!0@1#3 = nondet_symbol(symex::nondet0);</data>
+      <data key="invariant.scope">main</data>
+    </node>
+    <edge source="9.35" target="10.36">
+      <data key="originfile">/tmp/lw338104/login18-1_53191/tmp0cw86gt5.c</data>
+      <data key="startline">16</data>
+    </edge>
+    <node id="10.36">
+      <data key="invariant">i!0@1#3 = 1u;</data>
+      <data key="invariant.scope">main</data>
+    </node>
+    <edge source="10.36" target="sink">
+      <data key="originfile">/tmp/lw338104/login18-1_53191/tmp0cw86gt5.c</data>
+      <data key="startline">19</data>
+    </edge>
+    <data key="witness-type">violation_witness</data>
+    <data key="specification">CHECK( init(main()), LTL(G ! call(__VERIFIER_error())) )</data>
+    <data key="programhash">20c4968dad078ec130849b77a9b0220bb5df83d3e093eef4daf4e9b5267722cf</data>
+    <data key="architecture">32bit</data>
+    <data key="producer">CBMC</data>
+    <data key="programfile">dsr-REQ-2.c</data>
+  </graph>
+</graphml>

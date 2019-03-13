@@ -56,7 +56,12 @@ def write_back(graph, file):
 		f.write(s)
 
 
-def extend_from_cbmc_to_cpa_format(filename: str, input_file: str, result: bool):
+def extend_from_cbmc_to_cpa_format(base_witness_file: str, induction_witness_file: str, witness_file: str,
+								   input_file: str, result: bool):
+	if result is True:
+		filename = induction_witness_file
+	else:
+		filename = base_witness_file
 	time.sleep(10)
 	parser = etree.XMLParser(remove_blank_text=True)
 	tree = etree.parse(filename, parser)
@@ -69,7 +74,7 @@ def extend_from_cbmc_to_cpa_format(filename: str, input_file: str, result: bool)
 	g.append(get_data_producer('CBMC'))
 	g.append(get_data_programfile(input_file))
 
-	write_back(tree, filename)
+	write_back(tree, witness_file)
 
 
 # extend_from_cbmc_to_cpa_format('ecc-REQ-235600-False.c_base.gml', 'canalyzer.py')
