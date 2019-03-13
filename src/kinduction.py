@@ -63,9 +63,10 @@ def prepare_base_step(input_file: str):
 	:return: The location of the prepared C file for the base step.
 	:rtype: str
 	"""
-	output_file = tempfile.NamedTemporaryFile(delete=False, suffix=".c")
-	shutil.copy(input_file, output_file.name)
-	return output_file.name
+	# Disabled writing into a temporary file because of counterexample witness generation.
+	#output_file = tempfile.NamedTemporaryFile(delete=False, suffix=".c")
+	#shutil.copy(input_file, output_file.name)
+	return input_file
 
 def prepare_induction_step(input_file: str, original_input_file: str=None, readd_property_from_original: bool=False):
 	"""
@@ -349,7 +350,7 @@ def run_kinduction_bmc(file_base: str, file_induction: str, timelimit: int=None,
 					induction_out = induction_out_file.read().decode("utf-8")
 				else:
 					induction_out = ""
-				if base_step_k >= induction_step_k and induction_out_file and \
+				if base_step_k > induction_step_k and induction_out_file and \
 							interprete_induction_step_output(induction_out) is True:
 					return True
 				else:
@@ -358,24 +359,28 @@ def run_kinduction_bmc(file_base: str, file_induction: str, timelimit: int=None,
 						print("Runtime SMT-solver: " + "{0:0.2f}".format(identify_smt_time(induction_out)) + "s")
 					print("Induction step k = " + str(induction_step_k))
 					file_induction     = insert_k_into_induction_file(file_induction, induction_step_k)
-					induction_call     = insert_k_into_callstring(VERIFIER_BASE_CALL, induction_step_k)
+					induction_call     = insert_k_into_callstring(VERIFIER_INDUCTION_CALL, induction_step_k)
 					induction_out_file = tempfile.TemporaryFile()
 					induction_process  = subprocess.Popen(induction_call + [file_induction], stdout=induction_out_file)
 		# Checks for a possible timeout.
 		if is_timeout(timelimit): return None
 		time.sleep(POLL_INTERVAL)
 
-def add_witness_generation(input_file: str, witness_location: str):
+def add_witness_generation():
 	"""
-	TODO
-	:param input_file:
-	:param witness_location:
+	Adds the witness generation command line arguments to the base and induction call strings. Note: Changes global
+	variables.
+	:returns: A tuple containing the file locations of the base and induction witnesses.
+	:rtype: tuple of str
 	"""
 	global VERIFIER_BASE_CALL, VERIFIER_INDUCTION_CALL
-	witness_base_arg = VERIFIER_WITNESS_GEN_ARGUMENT.replace(VERIFIER_WITNESS_FILENAME_STRING, witness_location)
-	witness_ind_arg = VERIFIER_WITNESS_GEN_ARGUMENT.replace(VERIFIER_WITNESS_FILENAME_STRING, witness_location)
+	base_witness = tempfile.NamedTemporaryFile(suffix=".graphml")
+	induction_witness = tempfile.NamedTemporaryFile(suffix=".graphml")
+	witness_base_arg = VERIFIER_WITNESS_GEN_ARGUMENT.replace(VERIFIER_WITNESS_FILENAME_STRING, base_witness.name)
+	witness_ind_arg = VERIFIER_WITNESS_GEN_ARGUMENT.replace(VERIFIER_WITNESS_FILENAME_STRING, induction_witness.name)
 	VERIFIER_BASE_CALL.append(witness_base_arg)
 	VERIFIER_INDUCTION_CALL.append(witness_ind_arg)
+	return (base_witness.name, induction_witness.name)
 
 def verify(input_file: str,
 		   timelimit: int=None,
@@ -406,11 +411,11 @@ def verify(input_file: str,
 		print("Applying static slicing...")
 		input_file = static_slicing_from_file(input_file)
 	print("Preparing input files for k-Induction...")
-	file_base_step      = prepare_base_step(input_file)
+	file_base_step      = prepare_base_step(original_input_file) # Not applying pre-processing to base step as of now.
 	file_induction_step = prepare_induction_step(input_file, original_input_file, slicing)
 	if witness_location:
 		print("Setting up configuration for generating witnesses...")
-		add_witness_generation(input_file, witness_location)
+		base_witness, induction_witness = add_witness_generation()
 	print("Starting k-Induction processes...")
 	if VERIFIER_IS_INCREMENTAL:
 		result = run_kinduction_incremental_bmc(file_base_step, file_induction_step, timelimit, print_smt_time)
@@ -419,7 +424,7 @@ def verify(input_file: str,
 
 	if witness_location and result is not None:
 		# Takes care of incompatible GraphML representations of CBMC and CPAChecker.
-		extend_from_cbmc_to_cpa_format(witness_location, original_input_file, result)
+		extend_from_cbmc_to_cpa_format(base_witness, induction_witness, witness_location, original_input_file, result)
 
 	if result == True:
 		print("VERIFICATION SUCCESSFUL")
