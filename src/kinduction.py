@@ -420,7 +420,7 @@ def verify(input_file: str,
 
 	if witness_location and result is not None:
 		# Takes care of incompatible GraphML representations of CBMC and CPAChecker.
-		extend_from_cbmc_to_cpa_format(witness_location, input_file, result)
+		extend_from_cbmc_to_cpa_format(witness_location, original_input_file, result)
 
 	if result == True:
 		print("VERIFICATION SUCCESSFUL")
