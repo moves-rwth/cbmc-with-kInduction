@@ -74,8 +74,12 @@ def extend_from_cbmc_to_cpa_format(base_witness_file: str, induction_witness_fil
 	g.append(get_data_producer('CBMC'))
 	g.append(get_data_programfile(input_file))
 
-	write_back(tree, witness_file)
-
+	if result is False:
+		write_back(tree, witness_file)
+	else:
+		# Not writing proof witnesses, as they are not correct (after all, they are valid for the transformed code, but
+		# not necessarily for the actual input. Most likely, a transformation of the proof witness has to take place!
+		pass
 
 # extend_from_cbmc_to_cpa_format('ecc-REQ-235600-False.c_base.gml', 'canalyzer.py')
 
