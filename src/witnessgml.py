@@ -52,12 +52,12 @@ def get_sha512_hash(input_file: str) -> str:
 
 def write_back(graph, file):
 	s = etree.tostring(graph, pretty_print=True)
-	with open(f'{file}_cpa', 'wb') as f:
+	with open(file, 'wb') as f:
 		f.write(s)
 
 
 def extend_from_cbmc_to_cpa_format(filename: str, input_file: str, result: bool):
-	time.sleep(30)
+	time.sleep(10)
 	parser = etree.XMLParser(remove_blank_text=True)
 	tree = etree.parse(filename, parser)
 	g = tree.find('{http://graphml.graphdrawing.org/xmlns}graph')
