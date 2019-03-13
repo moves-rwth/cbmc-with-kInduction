@@ -91,7 +91,7 @@ def prepare_induction_step(input_file: str, original_input_file: str=None, readd
 		main_function = analyzer.identify_function(MAIN_FUNCTION_NAME)
 		main_loop     = analyzer.identify_main_loop()
 		declarations  = analyzer.identify_declarations_of_modified_variables(main_loop.stmt, main_function)
-		if original_input_file and input_file != original_input_file:
+		if readd_property_from_original and original_input_file and input_file != original_input_file:
 			with open(original_input_file) as original_file:
 				# In case we sliced the input, we want to re-add the original property first, as Frama-C scrambles the
 				# if statement in such a way that it becomes unrecognizable for our property identification process.
