@@ -499,7 +499,8 @@ def __main__():
 	parser.add_argument("--smt-time", action="store_true", help="Prints out the time that was spent on SMT-solving.")
 	parser.add_argument("-w", "--witness", type=str, default=None, help="Generates a witness for the verification at "
 																		"the specified file location. Currently tested "
-																		"only for CBMC.")
+																		"only for CBMC, and works only for "
+																		"counterexample witnesses.")
 
 	args = parser.parse_args()
 
