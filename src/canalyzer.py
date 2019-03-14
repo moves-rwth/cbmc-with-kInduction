@@ -153,7 +153,7 @@ class PropertyStatementFinder(c_ast.NodeVisitor):
 
 class TypedefAndStructsCollector(c_ast.NodeVisitor):
 	"""
-	Collects all typedefs and structs.
+	Collects all typedefs and structs as a copy.
 	"""
 	def __init__(self):
 		self.typedefs = set()
@@ -164,12 +164,12 @@ class TypedefAndStructsCollector(c_ast.NodeVisitor):
 				self.visit(c)
 
 	def visit_Typedef(self, node):
-		self.typedefs.add(node)
+		self.typedefs.add(copy.deepcopy(node))
 
 	def visit_Decl(self, node):
 		# Struct tags can also be used as a type elsewhere.
 		if hasattr(node, "type") and type(node.type) is c_ast.Struct:
-			self.typedefs.add(node.type)
+			self.typedefs.add(copy.deepcopy(node.type))
 
 class DeclarationCollector(c_ast.NodeVisitor):
 	"""
@@ -256,7 +256,6 @@ class CAnalyzer:
 		:rtype: list of c_ast.Decl
 		"""
 		declarations = []
-		generator = GnuCGenerator()
 		typedefs = self.identify_typedefs()
 		collector = DeclarationCollector()
 		collector.visit(self.ast)
@@ -267,18 +266,15 @@ class CAnalyzer:
 				resolved_declaration = copy.deepcopy(declaration)
 				declarations.append(resolved_declaration)
 				# Fixed point iteration until all typedefs are resolved.
-				old_declaration = copy.deepcopy(resolved_declaration)
-				first = True
-				while str(generator.visit(old_declaration)) != str(generator.visit(resolved_declaration)) or first:
-					old_declaration = copy.deepcopy(resolved_declaration)
-					applied_typedefs = set()
-					prev_applied_typedefs = typedefs
-					inner_first = True
-					while (applied_typedefs != prev_applied_typedefs and len(applied_typedefs) > 0) or inner_first:
-						prev_applied_typedefs = applied_typedefs
-						applied_typedefs = self.resolve_typedefs(resolved_declaration.type, typedefs - applied_typedefs)
-						inner_first = False
-					first = False
+				applied_typedefs = set()
+				prev_applied_typedefs = typedefs
+				inner_first = True
+				while (applied_typedefs != prev_applied_typedefs and len(applied_typedefs) > 0) or inner_first:
+					prev_applied_typedefs = applied_typedefs
+					applied_typedefs = applied_typedefs.union(
+							self.resolve_typedefs(resolved_declaration.type, typedefs)
+					)
+					inner_first = False
 		return declarations
 
 	def is_variable_of_declaration_modified(self, declaration: c_ast.Decl, block: c_ast.Compound):
@@ -420,6 +416,7 @@ class CAnalyzer:
 							applied_typedefs.add(typedef)
 					elif type(declaration.type) == c_ast.IdentifierType:
 						if typedef.name in declaration.type.names:
+							applied_typedefs = applied_typedefs.union(self.resolve_typedefs(typedef.type, typedefs))
 							declaration.type = copy.deepcopy(typedef.type.type)
 							declaration.quals = copy.deepcopy(typedef.quals)
 							applied_typedefs.add(typedef)
@@ -427,10 +424,10 @@ class CAnalyzer:
 					if typedef.name == declaration.type.name:
 						declaration.type = copy.deepcopy(typedef)
 						applied_typedefs.add(typedef)
-			if type(declaration.type) == c_ast.Struct or type(declaration.type) == c_ast.Union:
-				if declaration.type.decls:
-					for member in declaration.type.decls:
-						self.resolve_typedefs(member.type, typedefs)
 		elif type(declaration) == c_ast.ArrayDecl or type(declaration) == c_ast.PtrDecl:
-			self.resolve_typedefs(declaration.type, typedefs)
+			applied_typedefs = applied_typedefs.union(self.resolve_typedefs(declaration.type, typedefs))
+		if type(declaration.type) == c_ast.Struct or type(declaration.type) == c_ast.Union:
+			if declaration.type.decls:
+				for member in declaration.type.decls:
+					applied_typedefs = applied_typedefs.union(self.resolve_typedefs(member.type, typedefs))
 		return applied_typedefs
