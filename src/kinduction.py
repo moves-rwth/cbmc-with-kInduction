@@ -98,8 +98,7 @@ def prepare_induction_step(input_file: str, original_input_file: str=None, readd
 				# if statement in such a way that it becomes unrecognizable for our property identification process.
 				transformer.add_property(CAnalyzer(parser.parse(original_file.read())).identify_property(), main_loop)
 		property = analyzer.identify_property()
-	except (NoSuchFunctionException,
-			NoMainLoopException,
+	except (NoMainLoopException,
 			MultipleMainLoopsException,
 			UnidentifiableVariableTypeException) as err:
 		print(err)
@@ -412,7 +411,12 @@ def verify(input_file: str,
 		input_file = static_slicing_from_file(input_file)
 	print("Preparing input files for k-Induction...")
 	file_base_step      = prepare_base_step(original_input_file) # Not applying pre-processing to base step as of now.
-	file_induction_step = prepare_induction_step(input_file, original_input_file, slicing)
+	try:
+		file_induction_step = prepare_induction_step(input_file, original_input_file, slicing)
+	except NoSuchFunctionException:
+		# If there is no main function, correctness is guaranteed.
+		print("VERIFICATION SUCCESSFUL")
+		return True
 	if witness_location:
 		print("Setting up configuration for generating witnesses...")
 		base_witness, induction_witness = add_witness_generation()
