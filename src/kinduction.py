@@ -479,7 +479,7 @@ def check_validity(args: Namespace):
 	# TODO
 	return args
 
-def __main__():
+def main():
 	DESCRIPTION = "Runs k-induction on a given C-file by utilizing an (incremental) bounded model checker. " \
 				  "Currently, some constraints are imposed on the C code: It has to contain the entry function named " \
 				  "\"main\", inside which the loop over whom the k-Induction shall be run is located. The " \
@@ -536,4 +536,6 @@ def __main__():
 
 	exit(0)
 
-__main__()
+
+if __name__ == "__main__":
+	main()
