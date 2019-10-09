@@ -12,7 +12,7 @@ although it is recommended that a current version of `pycparserext` is installed
 
 For dealing with generated witnesses, the package `lxml` is necessary as well.  
 
-You will also need a bounded model checker to your liking.
+You will also need a bounded model checker to your liking (as stated before, we highly recommend using CBMC).
 
 ## Usage
 
