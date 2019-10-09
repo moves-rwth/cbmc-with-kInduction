@@ -1,7 +1,7 @@
-# k-Induction
+# k-Induction (for CBMC)
 
-This python tool enables any C bounded model checker, such as [CBMC] (https://www.cprover.org/cbmc), to be employed for 
-k-Induction over one-loop embedded-style C programs.
+The goal of this python tool is to enable any C bounded model checker, such as [CBMC] (https://www.cprover.org/cbmc), to be employed for k-Induction over one-loop embedded-style C programs (see below for a description).  
+For now, the tool was only tested and used to extend CBMC with k-induction proofs.
 
 ## Prerequisites
 
@@ -52,8 +52,10 @@ if statements.
 
 ### Supported verifiers
 
-The k-Induction tool can use any bounded model checker or incremental bounded model checker for C as its backend, as 
-long as the usage of the verifier is correctly configured (see section below for details). One needs to specify:
+In theory, the k-Induction tool can use any bounded model checker or incremental bounded model checker for C as its backend, as long as the usage of the verifier is correctly configured (see section below for details).  
+Note that during the development process, only CBMC was used to test the tool's functionality.
+
+One needs to specify:
 
 * Whether the verifier works incrementally or in a standard BMC configuration.
 * The call string for the base step and the call string for the induction step. This tells the tool how to run the 
