@@ -7,8 +7,7 @@ For now, the tool was only tested and used to extend CBMC with k-induction proof
 ## Prerequisites
 
 You will need `pycparser`, `pycparserext`, `pyyaml` and `psutil`. All packages are conveniently available via `pip`, 
-although it is recommended that a current version of `pycparserext` is installed from [source]
-(https://github.com/inducer/pycparserext), as the PyPI version is quite outdated.
+although it is recommended that a current version of `pycparserext` is installed from [source](https://github.com/inducer/pycparserext), as the PyPI version is quite outdated.
 
 For dealing with generated witnesses, the package `lxml` is necessary as well.  
 
